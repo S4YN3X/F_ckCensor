@@ -23,7 +23,7 @@ mkdir -p "$OUT/bin"
 
 # 1. Программа для обеих архитектур (окно и строка меню — на Cocoa, поэтому CGO)
 for ARCH in arm64 amd64; do
-	echo "сборка $ARCH…"
+	echo "сборка ${ARCH}…"
 	CGO_ENABLED=1 GOOS=darwin GOARCH=$ARCH MACOSX_DEPLOYMENT_TARGET=11.0 \
 		go build -trimpath -ldflags "-s -w" -o "$OUT/bin/F_ckCensor-$ARCH" ./cmd/F_ckCensor
 done
