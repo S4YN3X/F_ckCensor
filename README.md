@@ -3,6 +3,7 @@
 [![Downloads](https://img.shields.io/github/downloads/S4YN3X/F_ckCensor/total?style=flat-square&color=4CAF50&label=Downloads)](https://github.com/S4YN3X/F_ckCensor/releases)
 [![Latest Release](https://img.shields.io/github/v/release/S4YN3X/F_ckCensor?style=flat-square&color=2196F3&label=Latest%20Release)](https://github.com/S4YN3X/F_ckCensor/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square&logo=windows)](https://github.com/S4YN3X/F_ckCensor/releases)
+[![macOS](https://img.shields.io/badge/macOS-11%2B-000000?style=flat-square&logo=apple)](https://github.com/S4YN3X/F_ckCensor/releases)
 
 Программа для Яндекс Музыки, которая возвращает оригинальные версии зацензуренных треков, а удалённые треки и альбомы — обратно в каталог.
 
@@ -37,6 +38,19 @@ F_ckCensor сам находит Яндекс Музыку в `%LOCALAPPDATA%\Pr
 
 Окно можно закрыть: программа продолжит работать в трее. Чтобы она запускалась вместе с Windows, включи **запуск вместе с windows** в настройках — тогда она стартует незаметно, в трее, а окно покажет только если патчу нужно внимание.
 
+### macOS
+
+1. Скачай `F_ckCensor-…-universal.dmg` из [последнего релиза](https://github.com/S4YN3X/F_ckCensor/releases/latest) — подходит и для Apple Silicon, и для Intel, macOS 11 и новее
+2. Открой его и перетащи F_ckCensor в «Программы»
+3. Программа не подписана сертификатом Apple, поэтому при первом запуске macOS её заблокирует. Выполни в Терминале:
+   ```
+   xattr -dr com.apple.quarantine /Applications/F_ckCensor.app
+   ```
+   или открой **Системные настройки → Конфиденциальность и безопасность → Всё равно открыть**
+4. На главной нажми **установить**. macOS попросит разрешить F_ckCensor **управление приложениями** — разреши, иначе патч не встанет
+
+Иконка программы появится в строке меню. На Mac F_ckCensor пока не обновляется сам: новую версию скачай из релизов и замени приложение.
+
 ## Удаление
 
 1. **Настройки** → **удалить патч** — Яндекс Музыка перезапустится с оригинальными файлами
@@ -49,7 +63,7 @@ F_ckCensor сам находит Яндекс Музыку в `%LOCALAPPDATA%\Pr
 |-----------|--------|
 | Windows 10/11 | ✅ |
 | Android, iOS | Частично* |
-| macOS     | ❌ |
+| macOS 11+ (Apple Silicon, Intel) | ✅ |
 | Linux     | ❌ |
 
 \* На телефоне сама программа не работает, но слушать без цензуры можно. На компьютере откройте «Мне нравится» или альбом и нажмите кнопку со звёздочкой «Собрать без цензуры». В вашей Яндекс Музыке появится плейлист с версиями без цензуры, он играет и на телефоне. Новые лайки попадают в него, когда вы снова нажмёте «Собрать» на компьютере.
