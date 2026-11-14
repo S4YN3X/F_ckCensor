@@ -18,7 +18,16 @@ jobs:
           go-version-file: go.mod
 
       - name: Сборка
-        run: bash packaging/macos/build.sh
+        run: |
+          set -o pipefail
+          bash packaging/macos/build.sh 2>&1 | tee build.log
+
+      # ошибка сборки — конец лога в аннотацию запуска, чтобы её было видно без входа
+      - name: Ошибка сборки
+        if: failure()
+        run: |
+          msg=$(tail -n 80 build.log | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=build::$msg"
 
       - uses: actions/upload-artifact@v4
         with:
