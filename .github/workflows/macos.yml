@@ -26,7 +26,7 @@ jobs:
       - name: Ошибка сборки
         if: failure()
         run: |
-          msg=$(tail -n 80 build.log | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')
+          msg=$(tail -n 80 build.log | LC_ALL=C tr -cd '\n\40-\176' | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
           echo "::error title=build::$msg"
 
       - uses: actions/upload-artifact@v4
