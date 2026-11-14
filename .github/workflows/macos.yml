@@ -1,10 +1,10 @@
 # Сборка F_ckCensor для macOS: universal (Apple Silicon + Intel), .dmg — в артефактах запуска.
-# Запускается при пуше в ветки macos и main, а также вручную (Actions → macOS → Run workflow).
+# Запускается при пуше в main, а также вручную (Actions → macOS → Run workflow).
 name: macOS
 
 on:
   push:
-    branches: [macos, main]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
