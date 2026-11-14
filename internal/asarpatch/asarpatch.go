@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/S4YN3X/F_ckCensor/internal/store"
 )
 
 const patchMarker = "/* FkCensor patched */"
@@ -277,7 +279,7 @@ func patchFile(headerJSON []byte, fileData []byte, targetPath string, newContent
 	return newHeaderJSON, newFileData, nil
 }
 
-var hashCachePath = filepath.Join(os.Getenv("LOCALAPPDATA"), "F_ckCensor", "original_hash.txt")
+var hashCachePath = filepath.Join(store.Dir(), "original_hash.txt")
 
 // State описывает, что сейчас лежит в app.asar.
 type State int

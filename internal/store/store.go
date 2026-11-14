@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -66,11 +67,20 @@ type Store struct {
 	d    data
 }
 
-// Dir — папка данных программы.
-func Dir() string { return filepath.Join(os.Getenv("LOCALAPPDATA"), "F_ckCensor") }
+// Dir — папка данных программы: %LOCALAPPDATA%\F_ckCensor в Windows,
+// ~/Library/Application Support/F_ckCensor в macOS (там же её ищет скрипт в клиенте).
+func Dir() string { return filepath.Join(baseDir(), "F_ckCensor") }
 
 // LegacyDir — папка данных под старым названием программы (FkCensor).
-func LegacyDir() string { return filepath.Join(os.Getenv("LOCALAPPDATA"), "FkCensor") }
+func LegacyDir() string { return filepath.Join(baseDir(), "FkCensor") }
+
+func baseDir() string {
+	if runtime.GOOS == "darwin" {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, "Library", "Application Support")
+	}
+	return os.Getenv("LOCALAPPDATA")
+}
 
 // RemoveLegacy удаляет папку старого названия, если в ней не осталось настроек
 // (их уже перенесли): там лишь копия ipc.json и журнал старого патча.

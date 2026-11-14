@@ -239,8 +239,17 @@ func (a *App) runUpdate(ctx context.Context, checkTimeout time.Duration, backgro
 	return false
 }
 
+// updatesDisabled — сборка без автообновления (её обновляют пересборкой, а не релизом с GitHub)
+var updatesDisabled bool
+
+// DisableUpdates выключает проверку и установку обновлений. Вызывать до New.
+func DisableUpdates() { updatesDisabled = true }
+
 func fetchRelease(ctx context.Context) (release, int, error) {
 	var rel release
+	if updatesDisabled {
+		return rel, 0, fmt.Errorf("в этой сборке обновления отключены")
+	}
 	req, _ := http.NewRequestWithContext(ctx, "GET", releaseURL, nil)
 	req.Header.Set("User-Agent", "F_ckCensor")
 	resp, err := http.DefaultClient.Do(req)

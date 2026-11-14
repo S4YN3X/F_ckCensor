@@ -22,6 +22,15 @@ func ExePath(dir string) string { return filepath.Join(dir, exeName) }
 // ASARPath — архив интерфейса клиента в папке установки.
 func ASARPath(dir string) string { return filepath.Join(dir, "resources", "app.asar") }
 
+// IntegrityPath — где клиент хранит контрольную сумму app.asar: в Windows — в самом exe.
+func IntegrityPath(dir string) string { return ExePath(dir) }
+
+// AfterPatch — что сделать после изменения app.asar и контрольной суммы. В Windows — ничего.
+func AfterPatch(dir string) error { return nil }
+
+// Explain — понятная ошибка вместо системной. В Windows оставляем как есть.
+func Explain(err error) error { return err }
+
 // Valid проверяет, что в папке лежит клиент.
 func Valid(dir string) bool {
 	if dir == "" {

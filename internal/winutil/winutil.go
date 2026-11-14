@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package winutil — системные мелочи Windows: автозапуск, уведомления,
 // выбор папки, иконки окна, открытие ссылок.
 package winutil

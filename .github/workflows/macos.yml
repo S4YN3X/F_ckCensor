@@ -1,0 +1,27 @@
+# Сборка F_ckCensor для macOS: universal (Apple Silicon + Intel), .dmg — в артефактах запуска.
+# Запускается при пуше в ветки macos и main, а также вручную (Actions → macOS → Run workflow).
+name: macOS
+
+on:
+  push:
+    branches: [macos, main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Сборка
+        run: bash packaging/macos/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: F_ckCensor-macos
+          path: dist/macos/*.dmg
+          if-no-files-found: error

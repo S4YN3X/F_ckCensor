@@ -2,6 +2,8 @@
 package tray
 
 import (
+	"runtime"
+
 	"github.com/getlantern/systray"
 
 	"github.com/S4YN3X/F_ckCensor/assets"
@@ -44,13 +46,18 @@ func toggleTitle(s app.State) string {
 }
 
 // Run строит меню и обрабатывает клики. Вызывается из systray.Run(onReady).
-func Run(a *app.App, openWindow func()) {
+// extra (может быть nil) добавляет свои пункты — перед «выходом».
+func Run(a *app.App, openWindow func(), extra func()) {
 	mStatus := systray.AddMenuItem("", "")
 	mStatus.Disable()
 	systray.AddSeparator()
 	mToggle := systray.AddMenuItem("", "")
 	mOpen := systray.AddMenuItem("открыть окно", "")
 	mRestart := systray.AddMenuItem("перезапустить яндекс музыку", "")
+	if extra != nil {
+		systray.AddSeparator()
+		extra()
+	}
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("выход", "закрыть f_ckcensor")
 
@@ -63,7 +70,13 @@ func Run(a *app.App, openWindow func()) {
 			dot = "● "
 		}
 		// иконка под тему программы; при смене темы в настройках меняется сразу
-		systray.SetIcon(assets.Icon(a.DarkIcons(), active))
+		if runtime.GOOS == "darwin" {
+			// строка меню macOS: «шаблонная» иконка — система сама красит её под светлую и тёмную тему
+			ico := assets.Icon(false, active)
+			systray.SetTemplateIcon(ico, ico)
+		} else {
+			systray.SetIcon(assets.Icon(a.DarkIcons(), active))
+		}
 		mStatus.SetTitle(dot + status)
 		systray.SetTooltip("F_ckCensor — " + status)
 

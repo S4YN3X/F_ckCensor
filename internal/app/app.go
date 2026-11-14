@@ -53,7 +53,8 @@ type App struct {
 	lastSync   time.Time
 	listCount  int
 	reachable  bool
-	nowPlaying *ipc.NowPlaying
+	nowPlaying   *ipc.NowPlaying
+	nowPlayingAt time.Time
 	// lastPlayed — последний трек, записанный в историю по «сейчас играет»
 	lastPlayed string
 	// listReload — когда попросили обновить списки замен (ноль — не просили или уже обновлены)
@@ -90,7 +91,7 @@ func New(version, script string, st *store.Store, launch Launch) *App {
 		_ = winutil.SetAutostart(true)
 	}
 	go a.watchPatch()
-	if st.Settings().AutoUpdate {
+	if st.Settings().AutoUpdate && !updatesDisabled {
 		switch launch {
 		case LaunchWindow:
 			a.startup.Phase = "pending" // проверит заставка
@@ -135,7 +136,7 @@ func (a *App) RefreshPatch() {
 	}
 	patch, version := PatchNoYM, ""
 	if dir != "" {
-		switch st, err := asarpatch.Inspect(ym.ASARPath(dir), ym.ExePath(dir), a.script); {
+		switch st, err := asarpatch.Inspect(ym.ASARPath(dir), ym.IntegrityPath(dir), a.script); {
 		case err != nil:
 			patch = PatchNone
 		case st == asarpatch.Patched:
@@ -246,7 +247,12 @@ func (a *App) InstallPatch() {
 		ym.Kill()
 		// Patch сам справляется со старой версией скрипта и с повреждённой установкой,
 		// а при ошибке возвращает asar как было — поэтому клиент запускаем в любом случае
-		err := asarpatch.Patch(ym.ASARPath(dir), ym.ExePath(dir), a.script)
+		err := asarpatch.Patch(ym.ASARPath(dir), ym.IntegrityPath(dir), a.script)
+		if err == nil {
+			// macOS: изменённое приложение надо переподписать, иначе оно не запустится
+			err = ym.AfterPatch(dir)
+		}
+		err = ym.Explain(err)
 		if err == nil {
 			a.store.UpdateSettings(func(s *store.Settings) { s.Enabled = true })
 		}
@@ -271,7 +277,11 @@ func (a *App) RemovePatch() {
 			return fmt.Errorf("яндекс музыка не найдена")
 		}
 		ym.Kill()
-		err := asarpatch.Unpatch(ym.ASARPath(dir), ym.ExePath(dir))
+		err := asarpatch.Unpatch(ym.ASARPath(dir), ym.IntegrityPath(dir))
+		if err == nil {
+			err = ym.AfterPatch(dir)
+		}
+		err = ym.Explain(err)
 		if a.store.Settings().RestartYM {
 			if lerr := ym.Launch(dir); err == nil {
 				err = lerr
@@ -417,6 +427,7 @@ func (a *App) YMSync(req ipc.SyncRequest) ipc.SyncResponse {
 	}
 	npChanged := !samePlaying(a.nowPlaying, req.NowPlaying)
 	a.nowPlaying = req.NowPlaying
+	a.nowPlayingAt = time.Now()
 	a.mu.Unlock()
 
 	for _, e := range req.Events {
@@ -484,11 +495,25 @@ func (a *App) ReloadList() error {
 	return nil
 }
 
+// samePlaying — тот же трек в том же состоянии; позиция не в счёт (она меняется на каждом обмене)
 func samePlaying(x, y *ipc.NowPlaying) bool {
 	if x == nil || y == nil {
 		return x == y
 	}
-	return *x == *y
+	a, b := *x, *y
+	a.PositionMs, b.PositionMs = 0, 0
+	return a == b
+}
+
+// CurrentPlaying — что сейчас играет в Яндекс Музыке и когда это пришло; ok=false — ничего
+// или связи нет. Позиция — на момент прихода
+func (a *App) CurrentPlaying() (np ipc.NowPlaying, at time.Time, ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.nowPlaying == nil {
+		return np, time.Time{}, false
+	}
+	return *a.nowPlaying, a.nowPlayingAt, true
 }
 
 func (a *App) handleEvent(e ipc.Event) {

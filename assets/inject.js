@@ -381,6 +381,18 @@
     window.__fkcLikeOps = window.__fkcLikeOps || [];
     // треки, которые Яндекс отдал недоступными (удалены), а подмена сделала доступными
     window.__fkcGhost = window.__fkcGhost || new Set();
+    // Позиция и длительность: клиент сообщает их системе через mediaSession.setPositionState
+    // (при смене трека, паузе и перемотке) — запоминаем, текущую позицию досчитываем по времени
+    if (navigator.mediaSession && !window.__fkcPosHooked) {
+        window.__fkcPosHooked = true;
+        const orig = navigator.mediaSession.setPositionState;
+        if (typeof orig === 'function') {
+            navigator.mediaSession.setPositionState = function(st) {
+                window.__fkcPos = st && typeof st.duration === 'number' ? { duration: st.duration, position: st.position || 0, at: Date.now() } : null;
+                return orig.apply(this, arguments);
+            };
+        }
+    }
     window.__fkcTake = function() {
         const events = window.__fkcEvents.splice(0);
         const likeOps = window.__fkcLikeOps.splice(0);
@@ -390,18 +402,46 @@
         if (m && m.title) {
             const art = (m.artwork || []).slice(-1)[0];
             // id трека — из ссылки на название в плеере
-            let trackId = '';
+            let trackId = '', albumId = '';
             const link = document.querySelector('[class*="CommonLayout_playerBar__"] a[data-test-id="TRACK_TITLE"]');
             if (link) {
-                try { trackId = new URL(link.getAttribute('href'), location.href).searchParams.get('trackId') || ''; } catch (_) {}
+                try {
+                    const q = new URL(link.getAttribute('href'), location.href).searchParams;
+                    trackId = q.get('trackId') || '';
+                    albumId = q.get('albumId') || '';
+                } catch (_) {}
             }
             if (!trackId) trackId = trackIdFromFiber(document.querySelector('[data-test-id="VIBE_PLAYERBAR"]')) || '';
+            const playing = ms.playbackState !== 'paused';
+            const pos = window.__fkcPos;
+            let durationMs = 0, positionMs = 0, positionKnown = false;
+            if (pos) {
+                durationMs = Math.round(pos.duration * 1000);
+                positionMs = Math.round(pos.position * 1000 + (playing ? Date.now() - pos.at : 0));
+                if (durationMs) positionMs = Math.min(positionMs, durationMs);
+                positionKnown = true;
+            }
+            // плеер ещё не сообщал позицию (трек выбран до запуска подмены) — длительность из данных трека;
+            // оттуда же альбом и исполнитель
+            const info = trackId && window.__fkcTrackInfo ? window.__fkcTrackInfo(trackId) : null;
+            // данных о треке нет (выбран до запуска подмены) — один раз спрашиваем: ответ пройдёт
+            // через подмену и запомнится, к следующему обмену всё будет
+            if (trackId && (!info || (!info.durationMs && !info.albumId)) && window.__fkcAskTrack) window.__fkcAskTrack(trackId);
+            if (info && info.durationMs && !positionKnown) durationMs = info.durationMs;
+            if (info && !albumId) albumId = info.albumId;
+            const artistId = (info && info.artistId) || '';
             nowPlaying = {
                 title: m.title,
                 artist: m.artist || '',
+                album: m.album || '',
                 artwork: art ? art.src : '',
-                playing: ms.playbackState !== 'paused',
+                playing,
                 trackId,
+                albumId,
+                artistId,
+                durationMs,
+                positionMs,
+                positionKnown,
                 replaced: !!(trackId && getReplacementUrl(trackId)),
             };
         }
@@ -535,8 +575,34 @@
         return !!s;
     }
 
+    // треки, прошедшие через подмену: id → { durationMs, albumId, artistId } (последние ~2000).
+    // Нужны для «сейчас играет», когда плеер сам их не сообщил
+    const knownTracks = new Map();
+    function rememberTrack(t) {
+        const id = String(idOf(t));
+        const info = {
+            durationMs: t.durationMs > 0 ? t.durationMs : 0,
+            albumId: t.albums && t.albums[0] && t.albums[0].id != null ? String(t.albums[0].id) : '',
+            artistId: t.artists && t.artists[0] && t.artists[0].id != null ? String(t.artists[0].id) : '',
+        };
+        if (knownTracks.has(id)) knownTracks.delete(id);
+        knownTracks.set(id, info);
+        if (knownTracks.size > 2000) knownTracks.delete(knownTracks.keys().next().value);
+    }
+    window.__fkcTrackInfo = (id) => knownTracks.get(String(id)) || null;
+    const askedTracks = new Set();
+    window.__fkcAskTrack = (id) => {
+        id = String(id);
+        if (askedTracks.has(id)) return; // данные трека отдаются и без входа
+        askedTracks.add(id);
+        apiFetch('tracks?track-ids=' + encodeURIComponent(id)).then((r) => r.json()).catch(() => {});
+    };
+
     function applyTrack(t) {
         const id = idOf(t);
+        // загруженный трек (свой, UGC): у него есть только coverUri, а экран «Моей волны» берёт
+        // обложку из ogImage и без неё показывает заглушку
+        if (t.trackSource === 'UGC' && t.coverUri && !t.ogImage) t.ogImage = t.coverUri;
         const m = getMeta();
         const raw = m.tracks[id];
         const s = raw ? withoutMeta(raw) : {};
@@ -620,7 +686,8 @@
         if (!v || typeof v !== 'object' || depth > 14) return;
         if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return; }
         if (v.id != null) {
-            if (isTrackDto(v)) applyTrack(v);
+            // запоминаем уже после подмены: у удалённых треков длительность и альбом — из неё
+            if (isTrackDto(v)) { applyTrack(v); rememberTrack(v); }
             else if (isAlbumDto(v)) applyAlbum(v);
             else if (isArtistDto(v)) applyArtist(v);
         }

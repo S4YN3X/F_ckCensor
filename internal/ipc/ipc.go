@@ -29,7 +29,16 @@ type NowPlaying struct {
 	Playing bool   `json:"playing"`
 	TrackID string `json:"trackId"`
 	// Replaced — трек сейчас подменяется (своя подмена или замена из базы)
-	Replaced bool `json:"replaced"`
+	Replaced bool   `json:"replaced"`
+	Album    string `json:"album,omitempty"`
+	AlbumID  string `json:"albumId,omitempty"`
+	// ArtistID — первый исполнитель
+	ArtistID string `json:"artistId,omitempty"`
+	// DurationMs и PositionMs — длительность и позиция на момент обмена (0 — неизвестно)
+	DurationMs int64 `json:"durationMs,omitempty"`
+	PositionMs int64 `json:"positionMs,omitempty"`
+	// PositionKnown — позицию сообщил плеер; иначе она неизвестна (0)
+	PositionKnown bool `json:"positionKnown,omitempty"`
 }
 
 type Event struct {
