@@ -20,7 +20,7 @@ jobs:
       - name: Сборка
         run: |
           set -o pipefail
-          bash -x packaging/macos/build.sh 2>&1 | tee build.log
+          bash packaging/macos/build.sh 2>&1 | tee build.log
 
       # ошибка сборки — конец лога в аннотацию запуска, чтобы её было видно без входа
       - name: Ошибка сборки
