@@ -12,6 +12,12 @@ ROOT=$(pwd)
 OUT="$ROOT/dist/macos"
 VERSION=$(sed -n 's/^var version = "\(v[^"]*\)".*/\1/p' cmd/F_ckCensor/main.go)
 VERSION=${VERSION:-dev}
+# FKC_VERSION — другой номер версии в программе (например, старый — проверить автообновление)
+LDVER=""
+if [ -n "${FKC_VERSION:-}" ]; then
+	VERSION=$FKC_VERSION
+	LDVER="-X main.version=$FKC_VERSION"
+fi
 APP="$OUT/F_ckCensor.app"
 echo "F_ckCensor $VERSION → $OUT"
 
@@ -25,7 +31,7 @@ mkdir -p "$OUT/bin"
 for ARCH in arm64 amd64; do
 	echo "сборка ${ARCH}…"
 	CGO_ENABLED=1 GOOS=darwin GOARCH=$ARCH MACOSX_DEPLOYMENT_TARGET=11.0 \
-		go build -trimpath -ldflags "-s -w" -o "$OUT/bin/F_ckCensor-$ARCH" ./cmd/F_ckCensor
+		go build -trimpath -ldflags "-s -w $LDVER" -o "$OUT/bin/F_ckCensor-$ARCH" ./cmd/F_ckCensor
 done
 lipo -create -output "$OUT/bin/F_ckCensor" "$OUT/bin/F_ckCensor-arm64" "$OUT/bin/F_ckCensor-amd64"
 lipo -info "$OUT/bin/F_ckCensor"
@@ -83,7 +89,12 @@ PLIST
 codesign --force --deep --sign - --timestamp=none "$APP"
 codesign --verify --deep --strict "$APP"
 
-# 4. .dmg: приложение и ярлык «Программы» — перетащить
+# 4. архив для автообновления: программа скачивает его из релиза и меняет приложение сама
+#    (имя без версии — по нему программа ищет файл в релизе)
+ZIP="$OUT/F_ckCensor-mac.zip"
+ditto -c -k --keepParent "$APP" "$ZIP"
+
+# 5. .dmg: приложение и ярлык «Программы» — перетащить
 STAGE="$OUT/dmg"
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
@@ -96,3 +107,4 @@ echo
 echo "готово:"
 echo "  приложение: $APP"
 echo "  установщик: $DMG"
+echo "  для автообновления: $ZIP"

@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "номер версии в программе (пусто — как в коде); старый — чтобы проверить автообновление"
+        required: false
 
 jobs:
   build:
@@ -18,6 +22,8 @@ jobs:
           go-version-file: go.mod
 
       - name: Сборка
+        env:
+          FKC_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -o pipefail
           bash packaging/macos/build.sh 2>&1 | tee build.log
@@ -32,5 +38,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: F_ckCensor-macos
-          path: dist/macos/*.dmg
+          # в релиз кладутся оба: .dmg — для установки, F_ckCensor-mac.zip — для автообновления
+          path: |
+            dist/macos/*.dmg
+            dist/macos/F_ckCensor-mac.zip
           if-no-files-found: error

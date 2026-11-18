@@ -1,3 +1,7 @@
+//go:build windows
+
+// Обновление на Windows: подмена exe. На Mac — своя установка (selfupdate_darwin.go).
+
 package app
 
 import (

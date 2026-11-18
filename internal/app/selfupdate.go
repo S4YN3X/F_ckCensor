@@ -24,9 +24,9 @@ import (
 // При автозапуске (в трей, без окна) то же самое идёт в фоне: программа обновляется
 // молча и перезапускается обратно в трей. Нет связи — пробует ещё раз позже.
 
-// Файл программы в релизе. Под старым названием (FkCensor.exe) его ищут прежние версии,
-// поэтому какое-то время в релиз кладутся оба файла; новая версия берёт любой
-var releaseAssets = []string{"F_ckCensor.exe", "FkCensor.exe"}
+// Файл программы в релизе (releaseAssets), куда его скачать (updateDownloadPath) и как
+// поставить на место текущей версии (installUpdate) — свои для Windows и Mac:
+// selfupdate_windows.go, selfupdate_darwin.go.
 
 // Переменные, а не константы, — чтобы тест мог подставить свой сервер и файл
 var (
@@ -199,7 +199,7 @@ func (a *App) runUpdate(ctx context.Context, checkTimeout time.Duration, backgro
 		return false
 	}
 	a.setStartup(func(s *StartupUpdate) { s.Phase, s.Version = "downloading", rel.TagName })
-	newPath := exe + ".new"
+	newPath := updateDownloadPath(exe)
 	err = download(ctx, url, newPath, size, digest, func(p float64) {
 		a.setStartup(func(s *StartupUpdate) { s.Progress = p })
 	})
@@ -222,7 +222,7 @@ func (a *App) runUpdate(ctx context.Context, checkTimeout time.Duration, backgro
 		return false
 	}
 	a.changed()
-	if err := replaceExe(exe, newPath); err != nil {
+	if err := installUpdate(exe, newPath); err != nil {
 		os.Remove(newPath)
 		failed(rel.TagName, "не удалось установить "+rel.TagName+": "+err.Error())
 		return false
@@ -320,38 +320,6 @@ func download(ctx context.Context, url, path string, size int64, digest string, 
 		return errors.New("контрольная сумма не совпала")
 	}
 	return nil
-}
-
-// replaceExe ставит новый exe на место запущенного. Запущенный файл Windows не даёт
-// удалить, но даёт переименовать — он уходит в «FkCensor.exe~».
-func replaceExe(exe, newPath string) error {
-	old := exe + "~"
-	_ = os.Remove(old)
-	if err := os.Rename(exe, old); err != nil {
-		return err
-	}
-	if err := os.Rename(newPath, exe); err != nil {
-		_ = os.Rename(old, exe)
-		return err
-	}
-	return nil
-}
-
-// CleanupOldExe удаляет «FkCensor.exe~», оставшийся от обновления, когда старая копия
-// программы уже закрылась.
-func CleanupOldExe() {
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	go func() {
-		for i := 0; i < 30; i++ {
-			if err := os.Remove(exe + "~"); err == nil || os.IsNotExist(err) {
-				return
-			}
-			time.Sleep(time.Second)
-		}
-	}()
 }
 
 func (a *App) updateMessage(msg string) {

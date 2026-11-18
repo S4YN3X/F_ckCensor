@@ -23,5 +23,5 @@ func windowProcess() bool {
 	return true
 }
 
-// platformOptions — особенности Mac: обновления из релизов на GitHub пока только для Windows.
-func platformOptions(o *Options) { o.NoUpdates = true }
+// platformOptions — особенностей запуска на Mac больше нет: обновления — из F_ckCensor-mac.zip в релизе.
+func platformOptions(o *Options) {}
