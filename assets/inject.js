@@ -1124,25 +1124,55 @@
         if (data.pager) data.pager = Object.assign({}, data.pager, { page: 0, perPage: Math.max(data.pager.perPage || 0, all.length), total: all.length });
     }
 
+    // Порядок популярности треков исполнителя из базы (админка берёт его с Deezer):
+    // artists[id].__fckCensor.popular — id треков, самые популярные первыми
+    function popularOrder(artistId) {
+        const a = getMeta().artists[artistId];
+        const list = a && a.__fckCensor && a.__fckCensor.popular;
+        return Array.isArray(list) ? list.map(String) : [];
+    }
+    // вставки треков исполнителя: сначала по популярности, остальные — как в базе
+    function artistTrackInsertions(artistId) {
+        const ins = insertionsFor(artistId, 'tracks');
+        const order = popularOrder(artistId);
+        if (!order.length) return ins;
+        const rank = (x) => { const i = order.indexOf(String(x.releaseId)); return i < 0 ? order.length : i; };
+        return ins.map((x, i) => ({ x, i })).sort((a, b) => rank(a.x) - rank(b.x) || a.i - b.i).map((e) => e.x);
+    }
+
     async function insertArtistTracks(artistId, data) {
-        const list = Array.isArray(data) ? data : data && data.tracks;
-        if (!Array.isArray(list) || (data.pager && data.pager.page > 0)) return;
-        const ins = insertionsFor(artistId, 'tracks').filter((x) => !list.some((t) => idOf(t) === String(x.releaseId)));
+        const body = Array.isArray(data) ? data : resultOf(data);
+        if (!body || typeof body !== 'object' || (body.pager && body.pager.page > 0)) return;
+        // у исполнителя, чьи треки удалили, Яндекс отдаёт только pager — без списка tracks
+        if (!Array.isArray(body) && !Array.isArray(body.tracks)) {
+            if (!body.pager) return;
+            body.tracks = [];
+        }
+        const list = Array.isArray(body) ? body : body.tracks;
+        const ins = artistTrackInsertions(artistId).filter((x) => !list.some((t) => idOf(t) === String(x.releaseId)));
         if (!ins.length) return;
-        const fetched = await fetchTracks(ins.map((x) => String(x.releaseId)));
+        // свои треки (созданные в базе) Яндекс не знает — берём из записи
+        const real = ins.map((x) => String(x.releaseId)).filter((id) => !isCustomId(id));
+        const fetched = real.length ? await fetchTracks(real) : [];
         let added = 0;
         for (const x of ins) {
-            const t = fetched.find((f) => idOf(f) === String(x.releaseId));
+            const id = String(x.releaseId);
+            const t = isCustomId(id) ? customTrackDto(id) : fetched.find((f) => idOf(f) === id);
             if (t) { insertAt(list, t, x.index); added++; }
         }
-        if (data.pager && typeof data.pager.total === 'number') data.pager.total += added;
+        const pager = !Array.isArray(body) && body.pager;
+        if (pager && typeof pager.total === 'number') {
+            pager.total += added;
+            // perPage 0 — клиент решит, что на странице нет ни одного трека
+            if (typeof pager.perPage === 'number' && pager.perPage < list.length) pager.perPage = list.length;
+        }
     }
 
     function insertArtistTrackIds(artistId, data) {
         const list = Array.isArray(data) ? data : data && (data.trackIds || data.ids);
         if (!Array.isArray(list)) return;
         const asNumber = typeof list[0] === 'number';
-        for (const x of insertionsFor(artistId, 'tracks')) {
+        for (const x of artistTrackInsertions(artistId)) {
             const id = String(x.releaseId);
             if (list.some((y) => String(y) === id)) continue;
             insertAt(list, asNumber && isNum(id) ? Number(id) : id, x.index);
@@ -1252,6 +1282,49 @@
     // Страница исполнителя собирается по скелету (/artists/{id}/skeletons/...): список блоков,
     // которые клиент потом загружает. У исполнителя без своих альбомов блока альбомов в нём нет —
     // и альбомам из базы негде показаться. Ставим блок туда же, где он у остальных исполнителей
+    // То же для «Популярных треков»: у исполнителя, чьи треки в Яндексе удалили, этого блока нет.
+    // Блок берёт треки из /artists/{id}/tracks — туда треки из базы уже вставляются
+    function ensureTracksBlock(artistId, data) {
+        if (!insertionsFor(artistId, 'tracks').length) return;
+        const body = resultOf(data);
+        if (!body || !Array.isArray(body.blocks)) return;
+        let found = false, wrapper = null;
+        const lists = [];
+        const scan = (blocks) => {
+            if (!Array.isArray(blocks)) return;
+            lists.push(blocks);
+            for (const b of blocks) {
+                if (!b || typeof b !== 'object') continue;
+                if (b.type === 'ARTIST_POPULAR_TRACKS') found = true;
+                if (b.type === 'ARTIST_POPULAR_TRACKS_AND_RELEASES' && !wrapper) wrapper = b;
+                const d = b.data || {};
+                if (Array.isArray(d.tabs)) d.tabs.forEach((t) => scan(t && t.blocks));
+                scan(d.blocks);
+            }
+        };
+        scan(body.blocks);
+        if (found) return;
+        const block = {
+            id: 'artist_popular_tracks',
+            type: 'ARTIST_POPULAR_TRACKS',
+            data: {
+                title: 'Популярные треки',
+                showPolicy: 'SHOW_AND_LOAD',
+                viewAllAction: { deeplink: 'yandexmusic://artist/' + artistId + '/all/tracks', weblink: '/artist/' + artistId + '/tracks' },
+                source: { uri: '/artists/' + artistId + '/tracks', countWeb: 0, count: 0 },
+            },
+        };
+        if (wrapper) {
+            wrapper.data = wrapper.data || {};
+            wrapper.data.blocks = Array.isArray(wrapper.data.blocks) ? wrapper.data.blocks : [];
+            wrapper.data.blocks.unshift(block);
+            return;
+        }
+        // вкладка «Артист» — список, где лежат «Знакомое вам» или альбомы; блок — первым
+        const list = lists.find((l) => l.some((b) => b && (b.type === 'FAMILIAR_YOU_AND_ARTIST_PICK' || b.type === 'ARTIST_ALBUMS'))) || lists[0];
+        list.unshift({ id: 'artist_popular_tracks_and_releases', type: 'ARTIST_POPULAR_TRACKS_AND_RELEASES', data: { blocks: [block] } });
+    }
+
     function ensureAlbumsBlock(artistId, data) {
         if (!insertionsFor(artistId, 'albums').length) return;
         const body = resultOf(data);
@@ -1500,7 +1573,37 @@
             if (!a || a.error || !goneAlbums.has(id)) continue;
             albums.push({ id, dto: a, key: normText((a.title || '') + ' ' + artistsOf(a.artists)), title: normText(a.title) });
         }
-        return { tracks, albums };
+        return { tracks, albums, artists: await searchableArtists(m) };
+    }
+
+    // Исполнители, которым база вставляет релизы, но в Яндексе у них не осталось ни одного трека
+    // (всё удалили): страница есть, а поиск Яндекса таких не показывает
+    async function searchableArtists(m) {
+        const ids = Object.keys(m.insertions).filter(isNum);
+        const out = [];
+        const chunks = [];
+        for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
+        for (let i = 0; i < chunks.length; i += 4) {
+            const got = await Promise.all(chunks.slice(i, i + 4).map(async (c) => {
+                try {
+                    const r = await apiFetch('artists', { method: 'POST', body: new URLSearchParams({ 'artist-ids': c.join(',') }) });
+                    return ((await r.json()) || {}).result || [];
+                } catch (_) { return []; }
+            }));
+            for (const a of got.flat()) {
+                if (!a || a.id == null || !a.name) continue;
+                const c = a.counts || {};
+                if (c.tracks || c.directAlbums || c.alsoTracks) continue;
+                const id = String(a.id);
+                if (a.cover && a.cover.uri) artistCovers[id] = a.cover;
+                applyArtist(a);
+                // счётчики — по тому, что вставит база, а не нули Яндекса
+                const ins = m.insertions[id] || {};
+                a.counts = Object.assign({}, c, { tracks: (ins.tracks || []).length, directAlbums: (ins.albums || []).length });
+                out.push({ id, dto: a, key: normText(a.name), title: normText(a.name) });
+            }
+        }
+        return out;
     }
 
     async function getSearchIndex() {
@@ -1529,6 +1632,9 @@
         const score = (e) => (e.title === words.join(' ') ? 0 : e.title.startsWith(words.join(' ')) ? 1 : 2);
         const have = (type, id) => body.results.some((r) => r && r.type === type && r[type] && String(idOf(r[type])) === id);
         const add = [];
+        if (want('artist')) for (const e of (ix.artists || []).filter(match).sort((a, b) => score(a) - score(b)).slice(0, 3)) {
+            if (!have('artist', e.id)) add.push({ type: 'artist', artist: Object.assign({}, e.dto) });
+        }
         if (want('track')) for (const e of ix.tracks.filter(match).sort((a, b) => score(a) - score(b)).slice(0, 10)) {
             if (have('track', e.id)) continue;
             const t = Object.assign({}, e.dto);
@@ -1673,7 +1779,7 @@
             else if (sub === 'track-ids') insertArtistTrackIds(id, data);
             else if (sub === 'direct-albums' || sub === 'safe-direct-albums') await insertArtistAlbums(id, data, url);
             else if (sub === 'blocks' && path[3] === 'artist-albums') await artistAlbumBlock(id, data);
-            else if (sub === 'skeletons') ensureAlbumsBlock(id, data);
+            else if (sub === 'skeletons') { ensureTracksBlock(id, data); ensureAlbumsBlock(id, data); }
         }
         walk(data, 0);
     }
@@ -2103,6 +2209,7 @@
         '.fkc-primary:hover{background:var(--ym-controls-color-primary-default-hovered,#dada0b)}',
         '.fkc-wide{width:280px}',
         '.fkc-narrow{width:min(420px,calc(100vw - 48px))}',
+        '.fkc-area{height:auto;min-height:104px;padding:12px 14px;resize:vertical;line-height:1.4}',
         '.fkc-text{text-align:left;font-size:14px;line-height:1.45;color:var(--ym-controls-color-secondary-text-enabled,rgba(255,255,255,.6))}',
         '.fkc-text b{color:var(--ym-controls-color-secondary-on_default-enabled,#fff);font-weight:600}',
         '.fkc-pair{display:flex;gap:10px;margin-top:4px}',
@@ -2299,8 +2406,14 @@
         const foot = el('div', 'fkc-foot');
         const report = el('button', 'fkc-btn fkc-primary', 'Сообщить о цензуре');
         // Неактивная кнопка сама объясняет почему
+        // трек уже заменён из базы — можно пожаловаться, что в замене тоже цензура
+        const baseAudio = () => !!((window.__fkCensorReplacements || {})[trackId]);
         function renderReport() {
-            if (isReported(trackId)) { report.disabled = true; report.textContent = 'Уже отправлено'; }
+            if (baseAudio()) {
+                if (isReported(trackId, 'track-wrong')) { report.disabled = true; report.textContent = 'Уже отправлено'; }
+                else { report.disabled = false; report.textContent = 'В замене цензура'; }
+            }
+            else if (isReported(trackId)) { report.disabled = true; report.textContent = 'Уже отправлено'; }
             else if (hasAnySpoof(trackId)) { report.disabled = true; report.textContent = 'Уже подменяется'; }
             else { report.disabled = false; report.textContent = 'Сообщить о цензуре'; }
         }
@@ -2315,8 +2428,11 @@
         dlg.appendChild(foot);
 
         report.addEventListener('click', async () => {
+            const wrong = baseAudio();
+            const comment = await askReportComment(wrong ? 'track-wrong' : 'track');
+            if (comment === null) return;
             report.disabled = true;
-            await reportCensor(trackId, false, reportInfo());
+            await reportCensor(trackId, false, reportInfo(), 'track', { comment, wrong });
             renderReport();
         });
 
@@ -3473,8 +3589,10 @@
 
         const reportInfo = () => ({ title: shownTitle, artists: artistNames(shownArtists) });
         report.addEventListener('click', async () => {
+            const comment = await askReportComment('album');
+            if (comment === null) return;
             report.disabled = true;
-            await reportCensor(albumId, false, reportInfo(), 'album');
+            await reportCensor(albumId, false, reportInfo(), 'album', { comment });
             renderReport();
         });
 
@@ -3604,27 +3722,70 @@
 
     // replaced=true — пользователь сам подставил свой файл; тогда сообщение уходит молча, как в аддоне.
     // Сообщение уходит в очередь FckCensor и в свою, если она настроена; успех — если дошло хоть куда-то.
-    async function reportCensor(id, replaced, info, type) {
+    // extra: { comment — где цензура (тайминги), wrong — трек уже заменён, но в замене тоже цензура }
+    async function reportCensor(id, replaced, info, type, extra) {
         const kind = type || 'track';
-        if (!isNum(String(id)) || isReported(id, kind)) return false;
+        const wrong = !!(extra && extra.wrong);
+        const comment = ((extra && extra.comment) || '').trim().slice(0, 500);
+        const key = wrong ? kind + '-wrong' : kind;
+        if (!isNum(String(id)) || isReported(id, key)) return false;
         const body = { track_id: Number(id), type: kind, replaced: !!replaced };
-        const jobs = [postReport(REPORT_URL, reportKey(), body)];
+        // жалоба на замену — только в свою очередь: в базе FckCensor этого трека может и не быть
+        const jobs = wrong ? [] : [postReport(REPORT_URL, reportKey(), body)];
         if (OWN_REPORT_URL && OWN_REPORT_KEY) {
-            jobs.push(postReport(OWN_REPORT_URL.replace(/[/]+$/, '') + '/rest/v1/reports', OWN_REPORT_KEY, Object.assign({}, body, {
+            const own = Object.assign({}, body, {
                 title: ((info && info.title) || '').slice(0, 300) || null,
                 artists: ((info && info.artists) || '').slice(0, 300) || null,
                 client_id: clientId(),
-            })));
+            });
+            if (comment) own.comment = comment;
+            if (wrong) own.wrong = true;
+            jobs.push(postReport(OWN_REPORT_URL.replace(/[/]+$/, '') + '/rest/v1/reports', OWN_REPORT_KEY, own));
         }
         const results = await Promise.allSettled(jobs);
         results.forEach((r) => { if (r.status === 'rejected') console.error('[F_ckCensor] сообщение о цензуре:', r.reason && r.reason.message); });
         const ok = results.some((r) => r.status === 'fulfilled' && r.value);
-        if (ok) markReported(id, kind);
+        if (ok) markReported(id, key);
         if (!replaced) {
-            showToast(ok ? 'Спасибо! В скором времени этот ' + (kind === 'album' ? 'альбом' : 'трек') + ' будет добавлен в список автоматически подменяемых.'
-                : 'Не удалось сообщить о цензуре.');
+            showToast(!ok ? 'Не удалось сообщить о цензуре.'
+                : wrong ? 'Спасибо! Модераторы проверят замену и поставят версию без цензуры.'
+                : 'Спасибо! В скором времени этот ' + (kind === 'album' ? 'альбом' : 'трек') + ' будет добавлен в список автоматически подменяемых.');
         }
         return ok;
+    }
+
+    // Окно перед отправкой: где цензура. Тайминги сильно помогают модераторам найти оригинал.
+    // Возвращает комментарий (может быть пустым) или null — передумали
+    function askReportComment(kind) {
+        return new Promise((resolve) => {
+            const overlay = el('div', 'fkc-overlay');
+            const dlg = el('div', 'fkc-dialog fkc-narrow');
+            overlay.appendChild(dlg);
+            const head = el('div', 'fkc-head');
+            head.appendChild(el('h2', 'fkc-h', kind === 'track-wrong' ? 'В замене цензура' : 'Сообщить о цензуре'));
+            dlg.appendChild(head);
+            dlg.appendChild(el('div', 'fkc-text', kind === 'track-wrong'
+                ? 'Трек уже заменён, но в замене тоже есть цензура? Напишите, в каком моменте, — модераторы проверят и поставят оригинал.'
+                : 'Напишите, в каком моменте цензура: запикано слово, вырезан кусок, заменён текст. Тайминги сильно помогают найти оригинал без цензуры.'));
+            const area = el('textarea', 'fkc-input fkc-area');
+            area.maxLength = 500;
+            area.placeholder = kind === 'album' ? 'Например: «Название трека» — 0:45 запикано слово' : 'Например: 0:45 запикано слово, 1:30 вырезан куплет';
+            dlg.appendChild(area);
+            const pair = el('div', 'fkc-pair');
+            const cancel = el('button', 'fkc-btn fkc-secondary', 'Отмена');
+            const send = el('button', 'fkc-btn fkc-primary', 'Отправить');
+            pair.appendChild(cancel);
+            pair.appendChild(send);
+            dlg.appendChild(pair);
+            const done = (v) => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+            const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
+            document.addEventListener('keydown', onKey, true);
+            overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) done(null); });
+            cancel.addEventListener('click', () => done(null));
+            send.addEventListener('click', () => done(area.value.trim()));
+            document.body.appendChild(overlay);
+            setTimeout(() => area.focus(), 0);
+        });
     }
 
     // Как в аддоне: сообщать не о чем, если трек уже подменяется (из базы или своим файлом)
