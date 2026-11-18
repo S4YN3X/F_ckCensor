@@ -94,12 +94,7 @@ func New(version, script string, st *store.Store, launch Launch) *App {
 	if st.Settings().AutoUpdate && !updatesDisabled {
 		switch launch {
 		case LaunchWindow:
-			if runtime.GOOS == "darwin" {
-				// на Mac у окна нет заставки — обновление идёт в фоне, как при автозапуске
-				go a.backgroundUpdate()
-			} else {
-				a.startup.Phase = "pending" // проверит заставка
-			}
+			a.startup.Phase = "pending" // проверит заставка
 		case LaunchTray:
 			go a.backgroundUpdate()
 		}

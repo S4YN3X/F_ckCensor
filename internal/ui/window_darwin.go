@@ -65,9 +65,14 @@ func (w *Window) Show() {
 	if err != nil {
 		return
 	}
-	cmd := exec.Command(exe, "--window",
+	args := []string{"--window",
 		"--ui-port", strconv.Itoa(w.port), "--ui-token", w.token,
-		"--ui-zoom", strconv.FormatFloat(w.app.Settings().Zoom(), 'f', 2, 64))
+		"--ui-zoom", strconv.FormatFloat(w.app.Settings().Zoom(), 'f', 2, 64)}
+	// первое окно после запуска открывается заставкой: на ней проверяется обновление, как в Windows
+	if w.app.TakeStartupUpdate() {
+		args = append(args, "--ui-update")
+	}
+	cmd := exec.Command(exe, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "[ui] окно не запустилось:", err)
@@ -234,7 +239,7 @@ func (w *Window) action(name string, arg json.RawMessage) error {
 	case "skipUpdate":
 		w.app.SkipStartupUpdate()
 	case "expand", "titlebar":
-		// заставки и своей шапки окна на Mac нет — рамку рисует система
+		// заставку разворачивает сам процесс окна, шапку окна на Mac рисует система
 	case "open":
 		if url, ok := v.(string); ok && (url == app.RepoURL || len(url) > len(app.RepoURL) && url[:len(app.RepoURL)+1] == app.RepoURL+"/") {
 			winutil.OpenURL(url)

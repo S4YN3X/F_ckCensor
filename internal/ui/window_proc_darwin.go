@@ -66,8 +66,9 @@ import (
 )
 
 const (
-	width, height       = 980, 640
-	minWidth, minHeight = 760, 560
+	width, height             = 980, 640
+	minWidth, minHeight       = 760, 560
+	splashWidth, splashHeight = 280, 300 // заставка с обновлением — как в Windows
 )
 
 // RunWindowProcess — точка входа процесса окна (флаг --window).
@@ -77,6 +78,7 @@ func RunWindowProcess(args []string) {
 	port := fs.Int("ui-port", 0, "")
 	token := fs.String("ui-token", "", "")
 	zoom := fs.Float64("ui-zoom", 1, "")
+	update := fs.Bool("ui-update", false, "")
 	_ = fs.Parse(args)
 	if *port == 0 || *token == "" {
 		fmt.Fprintln(os.Stderr, "[ui] окно запущено без связи с программой")
@@ -111,14 +113,34 @@ func RunWindowProcess(args []string) {
 	defer w.Destroy()
 	C.fkcSetupApp()
 	w.SetTitle("F_ckCensor")
-	w.SetSize(int(float64(width)*(*zoom)), int(float64(height)*(*zoom)), webview.HintNone)
-	w.SetSize(int(float64(minWidth)*(*zoom)), int(float64(minHeight)*(*zoom)), webview.HintMin)
+	px := func(v int) int { return int(float64(v) * (*zoom)) }
+	normal := func() {
+		w.SetSize(px(width), px(height), webview.HintNone)
+		w.SetSize(px(minWidth), px(minHeight), webview.HintMin)
+	}
+	splash := *update
+	if splash {
+		w.SetSize(splashWidth, splashHeight, webview.HintFixed)
+	} else {
+		normal()
+	}
 
 	_ = w.Bind("fkcState", func() (json.RawMessage, error) {
 		b, err := call("/state", nil)
 		return json.RawMessage(b), err
 	})
 	_ = w.Bind("fkcAction", func(name string, arg json.RawMessage) error {
+		// заставка отыграла — окно становится обычным
+		if name == "expand" {
+			w.Dispatch(func() {
+				if splash {
+					splash = false
+					normal()
+					C.fkcActivate(w.Window())
+				}
+			})
+			return nil
+		}
 		b, err := call("/action", map[string]any{"name": name, "arg": arg})
 		if err != nil {
 			return err
@@ -135,13 +157,18 @@ func RunWindowProcess(args []string) {
 	// своей шапки окна на Mac нет: рамку и кнопки рисует система
 	_ = w.Bind("fkcWindow", func(cmd string) bool { return false })
 
-	w.Init(fmt.Sprintf(`window.fkcZoom = %g; window.fkcPlatform = 'mac';
+	splashJS := ""
+	if splash {
+		// страница показывает заставку и проверяет на ней обновление (как в Windows)
+		splashJS = "window.fkcSplash = true; window.fkcUpdate = true;"
+	}
+	w.Init(fmt.Sprintf(`window.fkcZoom = %g; window.fkcPlatform = 'mac'; %s
 document.addEventListener('DOMContentLoaded', function () {
   var s = document.createElement('style');
   s.textContent = ':root{--tb:0px !important} #titlebar{display:none !important}';
   document.head.appendChild(s);
   document.documentElement.classList.add('mac');
-});`, *zoom))
+});`, *zoom, splashJS))
 	w.SetHtml(assets.UIPage())
 	C.fkcActivate(w.Window())
 
