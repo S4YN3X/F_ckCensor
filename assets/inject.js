@@ -443,6 +443,8 @@
                 positionMs,
                 positionKnown,
                 replaced: !!(trackId && getReplacementUrl(trackId)),
+                // звук — файл самого пользователя, а не из базы (для анонимной статистики)
+                local: !!(trackId && String(getReplacementUrl(trackId) || '').startsWith('blob:')),
             };
         }
         return { events, nowPlaying, likeOps };
@@ -4102,7 +4104,7 @@
             const local = String(e.url).startsWith('blob:');
             const ok = local || await checkUrl(e.url);
             if (!ok) reachable = false;
-            report.push({ type: ok ? 'replaced' : 'failed', trackId: e.trackId, cover: e.cover || '', title: e.title || '', artist: e.artist || '' });
+            report.push({ type: ok ? 'replaced' : 'failed', trackId: e.trackId, cover: e.cover || '', title: e.title || '', artist: e.artist || '', local });
         }
 
         // После ошибки периодически проверяем, не ожило ли хранилище

@@ -91,6 +91,7 @@ func New(version, script string, st *store.Store, launch Launch) *App {
 		_ = winutil.SetAutostart(true)
 	}
 	go a.watchPatch()
+	go a.metricsLoop()
 	if st.Settings().AutoUpdate && !updatesDisabled {
 		switch launch {
 		case LaunchWindow:
@@ -335,6 +336,8 @@ func (a *App) SetSetting(key string, value any) error {
 		a.store.UpdateSettings(func(s *store.Settings) { s.HideToTray = b })
 	case "animations":
 		a.store.UpdateSettings(func(s *store.Settings) { s.Animations = b })
+	case "metrics":
+		a.store.UpdateSettings(func(s *store.Settings) { s.Metrics = b })
 	case "theme":
 		v, _ := value.(string)
 		if v != "system" && v != "light" && v != "dark" {
@@ -520,6 +523,7 @@ func (a *App) handleEvent(e ipc.Event) {
 	if e.TrackID == "" || a.store.RecentlyRecorded(e.TrackID, dedupeWindow, false) {
 		return
 	}
+	a.countMetric(e)
 	failed := e.Type == "failed"
 	title := e.Title
 	if title == "" {
@@ -564,7 +568,7 @@ func isCustomTrackID(id string) bool {
 // (повторное воспроизведение без нового запроса файла), остальные — «без замены».
 func (a *App) recordPlay(np ipc.NowPlaying) {
 	if np.Replaced {
-		a.handleEvent(ipc.Event{Type: "replaced", TrackID: np.TrackID, Title: np.Title, Artist: np.Artist, Cover: np.Artwork})
+		a.handleEvent(ipc.Event{Type: "replaced", TrackID: np.TrackID, Title: np.Title, Artist: np.Artist, Cover: np.Artwork, Local: np.Local})
 		return
 	}
 	if a.store.RecentlyRecorded(np.TrackID, dedupeWindow, true) {

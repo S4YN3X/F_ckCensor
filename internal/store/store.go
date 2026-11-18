@@ -25,6 +25,8 @@ type Settings struct {
 	// UIScale — масштаб интерфейса в процентах поверх масштаба Windows: 100, 125, 150, 175, 200
 	UIScale int    `json:"uiScale"`
 	YMDir   string `json:"ymDir"`
+	// Metrics — анонимная статистика (по умолчанию включена; см. internal/app/metrics.go)
+	Metrics bool `json:"metrics"`
 }
 
 // Zoom — масштаб интерфейса долей (1 = 100%).
@@ -59,6 +61,17 @@ type data struct {
 	Stats       Stats     `json:"stats"`
 	History     []Entry   `json:"history"`
 	LastUpdated time.Time `json:"lastUpdateCheck"`
+	Metrics     Metrics   `json:"metrics"`
+}
+
+// Metrics — счётчики анонимной статистики до отправки: прослушивания и ошибки треков из базы.
+type Metrics struct {
+	// ID — случайный id установки: только чтобы считать активные установки
+	ID       string         `json:"id"`
+	Plays    map[string]int `json:"plays,omitempty"`
+	Failures map[string]int `json:"failures,omitempty"`
+	// SentDay — день последней отправки (ГГГГ-ММ-ДД)
+	SentDay string `json:"sentDay,omitempty"`
 }
 
 type Store struct {
@@ -123,6 +136,7 @@ func Open() *Store {
 		HideToTray: true,
 		Animations: true,
 		UIScale:    100,
+		Metrics:    true,
 	}
 	if raw, err := os.ReadFile(s.path); err == nil {
 		_ = json.Unmarshal(raw, &s.d)
@@ -245,4 +259,64 @@ func (s *Store) SetLastUpdateCheck(t time.Time) {
 	defer s.mu.Unlock()
 	s.d.LastUpdated = t
 	s.save()
+}
+
+// metricsLimit — сколько разных треков копится до отправки (больше за сутки не бывает)
+const metricsLimit = 300
+
+// CountMetric прибавляет прослушивание (или ошибку) трека к счётчикам статистики.
+func (s *Store) CountMetric(trackID string, failed bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := &s.d.Metrics.Plays
+	if failed {
+		m = &s.d.Metrics.Failures
+	}
+	if *m == nil {
+		*m = map[string]int{}
+	}
+	if _, ok := (*m)[trackID]; !ok && len(*m) >= metricsLimit {
+		return
+	}
+	(*m)[trackID]++
+	s.save()
+}
+
+// MetricsSnapshot — id установки (создаётся при первом вызове), копии счётчиков и день прошлой отправки.
+func (s *Store) MetricsSnapshot(newID func() string) (id string, plays, failures map[string]int, sentDay string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.d.Metrics.ID == "" {
+		s.d.Metrics.ID = newID()
+		s.save()
+	}
+	return s.d.Metrics.ID, copyCounts(s.d.Metrics.Plays), copyCounts(s.d.Metrics.Failures), s.d.Metrics.SentDay
+}
+
+// MetricsSent вычитает отправленное (пока шла отправка, могло прибавиться) и запоминает день.
+func (s *Store) MetricsSent(plays, failures map[string]int, day string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sub := func(m map[string]int, sent map[string]int) {
+		if m == nil {
+			return
+		}
+		for k, n := range sent {
+			if m[k] -= n; m[k] <= 0 {
+				delete(m, k)
+			}
+		}
+	}
+	sub(s.d.Metrics.Plays, plays)
+	sub(s.d.Metrics.Failures, failures)
+	s.d.Metrics.SentDay = day
+	s.save()
+}
+
+func copyCounts(m map[string]int) map[string]int {
+	out := make(map[string]int, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }

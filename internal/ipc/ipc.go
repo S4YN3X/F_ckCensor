@@ -39,6 +39,8 @@ type NowPlaying struct {
 	PositionMs int64 `json:"positionMs,omitempty"`
 	// PositionKnown — позицию сообщил плеер; иначе она неизвестна (0)
 	PositionKnown bool `json:"positionKnown,omitempty"`
+	// Local — звук — файл самого пользователя, а не из базы
+	Local bool `json:"local,omitempty"`
 }
 
 type Event struct {
@@ -51,6 +53,8 @@ type Event struct {
 	// в Яндекс Музыке) их знает только клиент.
 	Title  string `json:"title"`
 	Artist string `json:"artist"`
+	// Local — звук — файл самого пользователя, а не из базы (для анонимной статистики)
+	Local bool `json:"local,omitempty"`
 }
 
 // SyncRequest — то, что скрипт в Яндекс Музыке присылает раз в пару секунд.
