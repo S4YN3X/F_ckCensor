@@ -62,6 +62,8 @@ type data struct {
 	History     []Entry   `json:"history"`
 	LastUpdated time.Time `json:"lastUpdateCheck"`
 	Metrics     Metrics   `json:"metrics"`
+	// Reports — отправленные сообщения о цензуре (см. reports.go)
+	Reports []ReportEntry `json:"reports,omitempty"`
 }
 
 // Metrics — счётчики анонимной статистики до отправки: прослушивания и ошибки треков из базы.

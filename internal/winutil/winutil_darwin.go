@@ -81,7 +81,10 @@ func Notify(title, body string) {
 }
 
 // OpenURL открывает ссылку в браузере по умолчанию.
-func OpenURL(url string) { _ = exec.Command("open", url).Run() }
+func OpenURL(url string) { _ = OpenLink(url) }
+
+// OpenLink — то же, с ошибкой: например, ссылку yandexmusic:// некому открыть.
+func OpenLink(url string) error { return exec.Command("open", url).Run() }
 
 // PickFolder — выбор приложения Яндекс Музыки (на Mac это не папка, а .app). owner не используется.
 func PickFolder(owner uintptr, title string) string {

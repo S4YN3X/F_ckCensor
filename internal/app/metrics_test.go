@@ -13,6 +13,7 @@ import (
 
 func TestMetricsCountAndSend(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", t.TempDir())
+	t.Setenv("HOME", t.TempDir()) // на Mac настройки — в ~/Library/Application Support
 	a := &App{Version: "v9.9.9", store: store.Open(), listeners: map[int]func(){}, patch: PatchOK, ymVersion: "5.124.0"}
 
 	a.countMetric(ipc.Event{Type: "replaced", TrackID: "50941920"})

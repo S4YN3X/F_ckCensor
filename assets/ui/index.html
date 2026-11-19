@@ -132,6 +132,37 @@ button:disabled{cursor:default;opacity:.5}
 .stat b{font-size:22px;font-weight:700}
 .stat span{font-size:11px;color:var(--muted)}
 .hint{font-size:11px;color:var(--faint);text-align:center}
+/* «спасибо, вы помогли»: итог на главной и окно со списком поверх */
+.thx{display:flex;align-items:center;gap:16px;padding:14px 16px;border-radius:12px;border:1px dashed var(--line)}
+.thx .num{display:flex;align-items:center;gap:8px;font-size:30px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.thx .nb{font-size:10px;font-weight:700;line-height:1;padding:4px 7px;border-radius:6px;white-space:nowrap;color:var(--on);background:rgba(31,176,90,.14)}
+.thx .tx{flex:1;min-width:0;font-size:12px;line-height:1.45}
+.thx .tx span{color:var(--muted)}
+.thx .x{font-size:13px;color:var(--faint);padding:4px 6px}
+.thx .x:hover{color:var(--text)}
+.thx-layer{position:fixed;inset:var(--tb,0px) 0 0 0;z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.5);animation:fade .15s ease both}
+.thx-dlg{background:var(--bg);border-radius:16px;box-shadow:0 0 0 1px var(--line) inset,0 16px 50px rgba(0,0,0,.45);width:min(100%,460px);max-height:100%;display:flex;flex-direction:column;animation:rise .2s var(--ease) both}
+.thx-dlg .hd{display:flex;align-items:flex-start;gap:12px;padding:18px 20px 10px}
+.thx-dlg .hd b{display:block;font-size:15px}
+.thx-dlg .hd span{font-size:11px;color:var(--muted)}
+.thx-dlg .hd .x{margin-left:auto;width:30px;height:30px;border-radius:8px;background:var(--panel);flex-shrink:0}
+.thx-dlg .tabs{display:flex;gap:4px;padding:0 20px 10px}
+.thx-dlg .tabs button{padding:6px 11px;border-radius:8px;font-size:11px;color:var(--muted)}
+.thx-dlg .tabs button.on{background:var(--panel);color:var(--text);font-weight:600}
+.thx-dlg .list{overflow:auto;min-height:0;padding:2px 8px 6px}
+/* смена вкладки: строки проявляются по очереди, как в истории */
+.thx-dlg .list.thx-in .it{animation:rise .35s var(--ease) both;animation-delay:calc(min(var(--i),8) * 35ms)}
+.thx-dlg .it{display:flex;align-items:center;gap:12px;width:100%;padding:8px 12px;border-radius:9px;text-align:left}
+.thx-dlg .it:hover{background:var(--panel)}
+.thx-dlg .it .meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.thx-dlg .it .ttl{font-size:12px;font-weight:600}
+.thx-dlg .it .art{font-size:11px;color:var(--muted)}
+.thx-dlg .it .tag{font-size:10px;padding:3px 8px;border-radius:6px;background:var(--panel);color:var(--muted);white-space:nowrap}
+.thx-dlg .it .new{font-size:9px;font-weight:700;color:var(--on);text-transform:uppercase;letter-spacing:.3px;margin-left:6px}
+.thx-dlg .ft{display:flex;align-items:center;gap:12px;padding:12px 20px 16px;border-top:1px solid var(--line)}
+.thx-dlg .ft span{font-size:10px;color:var(--muted)}
+.thx-dlg .ft .btn{margin-left:auto}
+@keyframes fade{from{opacity:0}}
 
 /* история */
 #history{gap:18px}
@@ -175,7 +206,7 @@ button:disabled{cursor:default;opacity:.5}
 .kv span:first-child{color:var(--muted)}
 .kv span:last-child{font-weight:600;text-align:right}
 
-.toast{position:fixed;left:50%;bottom:20px;transform:translate(-50%,10px);padding:10px 16px;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:12px;opacity:0;pointer-events:none;transition:opacity .2s,transform .3s var(--ease)}
+.toast{position:fixed;z-index:60;left:50%;bottom:20px;transform:translate(-50%,10px);padding:10px 16px;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:12px;opacity:0;pointer-events:none;transition:opacity .2s,transform .3s var(--ease)}
 .toast.on{opacity:1;transform:translate(-50%,0)}
 
 /* ---------- анимации ---------- */
@@ -302,6 +333,16 @@ button:disabled{cursor:default;opacity:.5}
     <div class="ver" id="ver"></div>
   </nav>
 
+  <div class="thx-layer" id="thx-layer" hidden>
+    <div class="thx-dlg" role="dialog" aria-modal="true" aria-labelledby="thx-h">
+      <div class="hd"><div><b id="thx-h"></b></div>
+        <button class="x" data-thx="close" aria-label="закрыть окно">✕</button></div>
+      <div class="tabs" id="thx-tabs"></div>
+      <div class="list" id="thx-list"></div>
+      <div class="ft"><span>нажмите на трек — откроется в яндекс музыке</span><button class="btn dark" data-thx="close">понятно</button></div>
+    </div>
+  </div>
+
   <main class="main">
     <section class="page col" id="home">
       <div class="hero">
@@ -330,6 +371,13 @@ button:disabled{cursor:default;opacity:.5}
         <div class="stat"><b id="s-today">0</b><span>заменено сегодня</span></div>
         <div class="stat"><b id="s-total">0</b><span>заменено всего</span></div>
         <div class="stat"><b id="s-failed">0</b><span>не загрузилось</span></div>
+      </div>
+
+      <div class="thx" id="thx" hidden>
+        <div class="num" id="thx-num"></div>
+        <div class="tx" id="thx-tx"></div>
+        <button class="btn" data-thx="open">подробнее</button>
+        <button class="x" data-thx="hide" title="закрыть — до следующих исправленных треков" aria-label="закрыть">✕</button>
       </div>
 
       <div class="hint">программа работает в трее — окно можно закрыть</div>
@@ -533,6 +581,96 @@ function statusView(s) {
     : { dot: 'var(--off)', title: 'на паузе', btn: 'включить', dark: true };
 }
 
+// «спасибо, вы помогли»: исправленные треки, о которых пользователь сообщал.
+// Перерисовываем только то, что поменялось: состояние приходит каждые пару секунд, и пересоздание
+// кнопок сбивало бы нажатия, фокус и подсказки. Окно со списком собирается, только пока открыто.
+let thxTab = 'all';
+let thxNew = null; // какие были новыми, когда открыли окно: пометки «новое» держим, пока оно открыто
+const thxHTML = {};
+function setHTML(id, html) {
+  if (thxHTML[id] === html) return;
+  thxHTML[id] = html;
+  $(id).innerHTML = html;
+}
+// «12 треков», «1 альбом», «5 треков и альбомов» — смотря что исправлено
+function thxWords(t, n) {
+  if (!t.tracks) return { noun: plural(n, 'альбом', 'альбома', 'альбомов'), with: plural(n, 'альбомом', 'альбомами', 'альбомами') };
+  if (!t.albums) return { noun: plural(n, 'трек', 'трека', 'треков'), with: plural(n, 'треком', 'треками', 'треками') };
+  return { noun: plural(n, 'трек и альбом', 'трека и альбома', 'треков и альбомов'), with: plural(n, 'треком и альбомом', 'треками и альбомами', 'треками и альбомами') };
+}
+const thxOpen = () => !$('thx-layer').hidden;
+function renderThanks(t) {
+  const show = !!(t && t.visible && t.total);
+  $('thx').hidden = !show;
+  if (!t || !t.total) { $('thx-layer').hidden = true; thxNew = null; return; }
+  const n = t.total, w = thxWords(t, n);
+  // новые — плашкой у числа: есть — видно сразу, нет — пропадает, текст не меняется
+  setHTML('thx-num', num(n) + (t.new ? `<span class="nb" title="${t.new} ${plural(t.new, 'новый', 'новых', 'новых')}">+${t.new}</span>` : ''));
+  setHTML('thx-tx', `${w.noun}, ${plural(n, 'о котором', 'о которых', 'о которых')} вы сообщали, теперь без цензуры для всех<br>`
+    + '<span>спасибо, что сообщаете о цензуре</span>');
+  if (!thxOpen()) return;
+  const isNew = (x) => thxNew.has(x.kind + ':' + x.id);
+  const fresh = (t.items || []).filter(isNew).length;
+  if (!fresh && thxTab === 'new') thxTab = 'all';
+  $('thx-h').textContent = `вы помогли с ${n} ${w.with}`;
+  setHTML('thx-tabs', `<button data-thx="tab" data-v="all" class="${thxTab === 'all' ? 'on' : ''}">все ${n}</button>`
+    + (fresh ? `<button data-thx="tab" data-v="new" class="${thxTab === 'new' ? 'on' : ''}">новые ${fresh}</button>` : ''));
+  const items = (t.items || []).filter((x) => thxTab === 'all' || isNew(x));
+  const list = $('thx-list');
+  const before = thxHTML['thx-list'];
+  setHTML('thx-list', items.map((x, i) => `<button class="it" style="--i:${i}" data-thx="go" data-kind="${esc(x.kind)}" data-id="${esc(x.id)}">
+      ${cover(x.cover, 36)}
+      <div class="meta"><div class="ttl ellipsis">${esc(x.title)}${isNew(x) ? '<span class="new">новое</span>' : ''}</div><div class="art ellipsis">${esc(x.artists || (x.kind === 'album' ? 'альбом' : ''))}</div></div>
+      <span class="tag">${x.wrong ? 'замену исправили' : x.kind === 'album' ? 'альбом без цензуры' : 'без цензуры'}</span></button>`).join(''));
+  // список сменился по вкладке — строки проявляются; обновление того же списка — без анимации
+  if (thxSwap && thxHTML['thx-list'] !== before) {
+    list.classList.remove('thx-in');
+    void list.offsetWidth; // перезапуск анимации
+    list.classList.add('thx-in');
+    list.scrollTop = 0;
+  }
+  thxSwap = false;
+}
+let thxSwap = false;
+// Открыли — сразу «просмотрено»: окно могут закрыть как угодно (кликом по треку, сворачиванием
+// программы), а новые не должны возвращаться. Пометки «новое» видны, пока окно открыто
+let thxReturn = null;
+function openThanks() {
+  const t = S.thanks;
+  if (!t || !t.total) return;
+  thxNew = new Set((t.items || []).filter((x) => x.new).map((x) => x.kind + ':' + x.id));
+  thxTab = thxNew.size ? 'new' : 'all';
+  thxReturn = document.activeElement;
+  $('thx-layer').hidden = false;
+  renderThanks(t);
+  if (thxNew.size) act('thanksSeen');
+  const first = $('thx-layer').querySelector('.tabs button.on') || $('thx-layer').querySelector('button');
+  if (first) first.focus();
+}
+function closeThanks() {
+  if (!thxOpen()) return;
+  $('thx-layer').hidden = true;
+  thxNew = null;
+  if (thxReturn && document.contains(thxReturn)) thxReturn.focus();
+  thxReturn = null;
+}
+addEventListener('keydown', (e) => {
+  if (!thxOpen()) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeThanks(); return; }
+  // фокус — по кругу внутри окна: кнопки за ним недоступны, пока оно открыто
+  if (e.key === 'Tab') {
+    const f = [...$('thx-layer').querySelectorAll('button')].filter((b) => !b.disabled);
+    if (!f.length) return;
+    const i = f.indexOf(document.activeElement);
+    const next = e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : (i < 0 || i === f.length - 1 ? 0 : i + 1);
+    e.preventDefault();
+    f[next].focus();
+  }
+});
+// закрываем кликом по фону, только если и нажали на фоне: отпущенная там прокрутка списка — не закрытие
+let thxDown = null;
+document.addEventListener('mousedown', (e) => { thxDown = e.target; });
+
 function render() {
   const s = S;
   if (!s) return;
@@ -573,6 +711,7 @@ function render() {
   $('s-today').textContent = num(s.stats.today);
   $('s-total').textContent = num(s.stats.total);
   $('s-failed').textContent = num(s.stats.failed);
+  renderThanks(s.thanks);
 
   // история
   document.querySelectorAll('#filters button').forEach((x) => x.classList.toggle('on', x.dataset.filter === filter));
@@ -832,8 +971,18 @@ addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setT
 win('state');
 
 document.addEventListener('click', (e) => {
+  if (e.target.id === 'thx-layer') { if (thxDown === e.target) closeThanks(); return; }
   const t = e.target.closest('button');
   if (!t || t.disabled) return;
+  if (t.dataset.thx) {
+    const a = t.dataset.thx;
+    if (a === 'open') openThanks();
+    else if (a === 'hide') act('thanksHide');
+    else if (a === 'close') closeThanks();
+    else if (a === 'tab') { if (thxTab !== t.dataset.v) { thxTab = t.dataset.v; thxSwap = true; renderThanks(S.thanks); } }
+    else if (a === 'go') act('openReport', { kind: t.dataset.kind, id: t.dataset.id });
+    return;
+  }
   if (t.dataset.tab) setTab(t.dataset.tab);
   else if (t.dataset.act) act(t.dataset.act);
   else if (t.dataset.filter) { filter = t.dataset.filter; render(); }

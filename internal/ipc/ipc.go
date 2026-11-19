@@ -72,6 +72,11 @@ type SyncRequest struct {
 	LikeOps []store.LikeOp `json:"likeOps,omitempty"`
 	// LikesRev — версия лайков, которая уже есть у клиента
 	LikesRev int64 `json:"likesRev"`
+	// Reports — отправленные сообщения о цензуре; ReportsDone — какие из тех, что программа
+	// просила проверить, уже исправлены; ReportsBase — нынешний файл замены для старых жалоб на замену
+	Reports     []store.Report    `json:"reports,omitempty"`
+	ReportsDone []store.ReportKey `json:"reportsDone,omitempty"`
+	ReportsBase []store.ReportKey `json:"reportsBase,omitempty"`
 }
 
 type SyncResponse struct {
@@ -83,6 +88,8 @@ type SyncResponse struct {
 	// Без omitempty: пустой список ({}) — тоже новость, «последний лайк сняли»
 	Likes    map[string][]store.Like `json:"likes"`
 	LikesRev int64                   `json:"likesRev"`
+	// Watch — сообщения о цензуре, которые ещё ждут исправления: клиент проверит их по списку замен
+	Watch []store.ReportKey `json:"watch,omitempty"`
 }
 
 type Handler interface {

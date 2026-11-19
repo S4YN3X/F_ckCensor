@@ -232,6 +232,16 @@ func (w *Window) action(name string, arg json.RawMessage) error {
 		w.app.ClearHistory()
 	case "checkUpdate":
 		w.app.CheckUpdate()
+	case "thanksSeen":
+		w.app.ThanksSeen()
+	case "thanksHide":
+		w.app.ThanksHide()
+	case "openReport":
+		// исправленный трек или альбом из карточки «спасибо» — в Яндекс Музыке
+		m, _ := v.(map[string]any)
+		kind, _ := m["kind"].(string)
+		id, _ := m["id"].(string)
+		return w.app.OpenReport(kind, id)
 	case "dismissError":
 		w.app.DismissError()
 	case "startupUpdate":

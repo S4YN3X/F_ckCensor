@@ -30,6 +30,7 @@ func getJSON(url string, v any) (int, error) {
 
 type trackMeta struct {
 	Title, Artist, Cover string
+	AlbumID              string
 }
 
 // fetchTrack берёт название, исполнителей и обложку из публичного API Яндекс Музыки.
@@ -42,6 +43,9 @@ func fetchTrack(id string) (trackMeta, error) {
 			Artists  []struct {
 				Name string `json:"name"`
 			} `json:"artists"`
+			Albums []struct {
+				ID json.Number `json:"id"`
+			} `json:"albums"`
 		} `json:"result"`
 	}
 	if _, err := getJSON("https://api.music.yandex.net/tracks/"+id, &resp); err != nil {
@@ -61,7 +65,31 @@ func fetchTrack(id string) (trackMeta, error) {
 	}
 	m.Artist = strings.Join(names, ", ")
 	m.Cover = coverURL(t.CoverURI)
+	if len(t.Albums) > 0 {
+		m.AlbumID = t.Albums[0].ID.String()
+	}
 	return m, nil
+}
+
+// fetchAlbum — название, исполнители и обложка альбома из публичного API Яндекс Музыки.
+func fetchAlbum(id string) (trackMeta, error) {
+	var resp struct {
+		Result struct {
+			Title    string `json:"title"`
+			CoverURI string `json:"coverUri"`
+			Artists  []struct {
+				Name string `json:"name"`
+			} `json:"artists"`
+		} `json:"result"`
+	}
+	if _, err := getJSON("https://api.music.yandex.net/albums/"+id, &resp); err != nil {
+		return trackMeta{}, err
+	}
+	names := make([]string, len(resp.Result.Artists))
+	for i, a := range resp.Result.Artists {
+		names[i] = a.Name
+	}
+	return trackMeta{Title: resp.Result.Title, Artist: strings.Join(names, ", "), Cover: coverURL(resp.Result.CoverURI)}, nil
 }
 
 // coverURL превращает coverUri Яндекс Музыки («host/path/%%») в ссылку на картинку 200×200.

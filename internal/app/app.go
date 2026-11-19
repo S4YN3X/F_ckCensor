@@ -57,6 +57,8 @@ type App struct {
 	nowPlayingAt time.Time
 	// lastPlayed — последний трек, записанный в историю по «сейчас играет»
 	lastPlayed string
+	// watchSent — когда клиенту последний раз отдали список сообщений на проверку
+	watchSent time.Time
 	// listReload — когда попросили обновить списки замен (ноль — не просили или уже обновлены)
 	listReload time.Time
 	// listReloadErr — чем закончилось последнее обновление по просьбе: пусто — получилось
@@ -446,10 +448,11 @@ func (a *App) YMSync(req ipc.SyncRequest) ipc.SyncResponse {
 			a.recordPlay(*np)
 		}
 	}
-	if !wasConnected || npChanged || len(req.Events) > 0 || reloaded {
+	res := ipc.SyncResponse{Enabled: a.store.Settings().Enabled, ReloadList: reloadAt}
+	thanks := a.syncReports(req, &res)
+	if !wasConnected || npChanged || len(req.Events) > 0 || reloaded || thanks {
 		a.changed()
 	}
-	res := ipc.SyncResponse{Enabled: a.store.Settings().Enabled, ReloadList: reloadAt}
 	// лайки треков, которых нет в Яндекс Музыке: сохраняем и отдаём клиенту, если у него старые
 	if a.likes != nil {
 		a.likes.Apply(req.LikeOps)
@@ -620,6 +623,8 @@ type State struct {
 	Settings        store.Settings  `json:"settings"`
 	Update          UpdateInfo      `json:"update"`
 	Startup         StartupUpdate   `json:"startup"`
+	// Thanks — карточка «спасибо, вы помогли»; nil — исправленного нет
+	Thanks *ThanksView `json:"thanks"`
 }
 
 func (a *App) Snapshot() State {
@@ -657,6 +662,7 @@ func (a *App) Snapshot() State {
 	for i, e := range hist {
 		st.History[i] = HistoryItem{Title: e.Title, Artist: e.Artist, Cover: e.Cover, Time: e.Time.UnixMilli(), Failed: e.Failed, Original: e.Original}
 	}
+	st.Thanks = a.thanksView()
 	return st
 }
 

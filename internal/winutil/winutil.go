@@ -131,10 +131,13 @@ $x.LoadXml('` + strings.ReplaceAll(xml, "'", "''") + `')
 }
 
 // OpenURL открывает ссылку в браузере по умолчанию.
-func OpenURL(url string) {
+func OpenURL(url string) { _ = OpenLink(url) }
+
+// OpenLink — то же, с ошибкой: например, ссылку yandexmusic:// некому открыть (приложение не установлено).
+func OpenLink(url string) error {
 	verb, _ := windows.UTF16PtrFromString("open")
 	target, _ := windows.UTF16PtrFromString(url)
-	_ = windows.ShellExecute(0, verb, target, nil, nil, windows.SW_SHOWNORMAL)
+	return windows.ShellExecute(0, verb, target, nil, nil, windows.SW_SHOWNORMAL)
 }
 
 type browseInfo struct {

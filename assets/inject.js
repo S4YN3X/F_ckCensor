@@ -99,6 +99,15 @@
         return url.includes('://') ? url : 'https://' + url;
     }
 
+    // версия файла: при замене звука админка её меняет — адрес новый, старый файл из кэша не придёт
+    function withV(url, v) {
+        return v !== undefined && v !== null && v !== '' ? url + (url.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(String(v)) : url;
+    }
+    // версия файла из адреса (пусто — без версии)
+    function versionOf(url) {
+        try { return new URL(url).searchParams.get('v') || ''; } catch (_) { return ''; }
+    }
+
     // Разбор list_v2.json в плоскую карту trackId -> { url, durationMs }.
     // Приоритет как в аддоне: хранилища более поздних источников проверяются первыми,
     // внутри хранилища явная запись в tracks важнее trackIds.
@@ -137,7 +146,8 @@
             for (const [trackId, value] of Object.entries(storage.tracks || {})) {
                 if (trackId in result) continue;
                 const isObj = typeof value === 'object' && value !== null;
-                const url = fromTemplate(isObj ? value.url : value);
+                const raw = fromTemplate(isObj ? value.url : value);
+                const url = typeof raw === 'string' && raw && isObj ? withV(raw, value.v) : raw;
                 if (typeof url === 'string' && url) {
                     result[trackId] = { url: httpsify(url), durationMs: isObj ? value.durationMs : undefined };
                     setDuration(trackId, isObj ? value.durationMs : undefined);
@@ -149,7 +159,7 @@
                 const trackId = String(typeof item === 'number' ? item : item.id);
                 if (trackId in result) continue;
                 result[trackId] = {
-                    url: httpsify(template.replace('%%', trackId)),
+                    url: httpsify(withV(template.replace('%%', trackId), typeof item === 'object' ? item.v : undefined)),
                     durationMs: typeof item === 'object' ? item.durationMs : undefined,
                 };
                 setDuration(trackId, typeof item === 'object' ? item.durationMs : undefined);
@@ -374,6 +384,9 @@
 
     // Очередь замен и «сейчас играет» — главный процесс забирает их через __fkcTake()
     window.__fkcEvents = [];
+    // Отправленные сообщения о цензуре — программе: она скажет пользователю «спасибо, вы помогли»,
+    // когда трек появится в базе (или поменяют файл, если жаловались на замену)
+    window.__fkcReports = window.__fkcReports || [];
     // Лайки треков, которых нет в Яндекс Музыке: их хранит программа (likes.json).
     // __fkcLikes — uid аккаунта → [{ id, albumId, timestamp }], новые сверху;
     // __fkcLikeOps — что лайкнули и сняли с прошлого обмена с программой
@@ -395,6 +408,20 @@
     }
     window.__fkcTake = function() {
         const events = window.__fkcEvents.splice(0);
+        // сообщения, отправленные до этой версии, — один раз, только id (названия программа найдёт сама)
+        try {
+            if (!localStorage.getItem('fkc-reports-exported')) {
+                const old = JSON.parse(localStorage.getItem('fkc-reported') || '[]');
+                for (const k of Array.isArray(old) ? old : []) {
+                    const i = String(k).lastIndexOf('_');
+                    if (i < 0) continue;
+                    const kindPart = String(k).slice(0, i);
+                    window.__fkcReports.push({ kind: kindPart.replace('-wrong', ''), id: String(k).slice(i + 1), wrong: kindPart.endsWith('-wrong'), old: true });
+                }
+                localStorage.setItem('fkc-reports-exported', '1');
+            }
+        } catch (_) {}
+        const reports = window.__fkcReports.splice(0);
         const likeOps = window.__fkcLikeOps.splice(0);
         let nowPlaying = null;
         const ms = navigator.mediaSession;
@@ -447,7 +474,7 @@
                 local: !!(trackId && String(getReplacementUrl(trackId) || '').startsWith('blob:')),
             };
         }
-        return { events, nowPlaying, likeOps };
+        return { events, nowPlaying, likeOps, reports };
     };
 
 
@@ -2442,6 +2469,8 @@
         const reportInfo = () => ({
             title: shownTitle,
             artists: ((track && track.artists) || []).map((a) => a.name).filter(Boolean).join(', '),
+            cover: coverUri || '',
+            albumId: track && track.albums && track.albums[0] && track.albums[0].id != null ? String(track.albums[0].id) : '',
         });
         function renderStatus() {
             status.textContent = '';
@@ -3589,7 +3618,7 @@
         foot.appendChild(right);
         dlg.appendChild(foot);
 
-        const reportInfo = () => ({ title: shownTitle, artists: artistNames(shownArtists) });
+        const reportInfo = () => ({ title: shownTitle, artists: artistNames(shownArtists), cover: coverSrc || '' });
         report.addEventListener('click', async () => {
             const comment = await askReportComment('album');
             if (comment === null) return;
@@ -3714,7 +3743,28 @@
         catch (_) { return new Set(); }
     }
 
-    function isReported(id, type) { return reportedSet().has((type || 'track') + '_' + id); }
+    function isReported(id, type) {
+        if (!reportedSet().has((type || 'track') + '_' + id)) return false;
+        // жалоба на замену: файл с тех пор поменяли — на новый можно пожаловаться снова
+        if (type === 'track-wrong') {
+            const was = wrongUrls()[String(id)];
+            const now = ((window.__fkCensorReplacements || {})[String(id)] || {}).url || '';
+            if (was !== undefined && now && now !== was) return false;
+        }
+        return true;
+    }
+    // какой файл стоял, когда жаловались на замену: id → адрес
+    const WRONG_URLS = 'fkc-wrong-urls';
+    function wrongUrls() {
+        try { return JSON.parse(localStorage.getItem(WRONG_URLS) || '{}') || {}; } catch (_) { return {}; }
+    }
+    function rememberWrongUrl(id) {
+        try {
+            const m = wrongUrls();
+            m[String(id)] = ((window.__fkCensorReplacements || {})[String(id)] || {}).url || '';
+            localStorage.setItem(WRONG_URLS, JSON.stringify(m));
+        } catch (_) {}
+    }
 
     function markReported(id, type) {
         const set = reportedSet();
@@ -3747,7 +3797,18 @@
         const results = await Promise.allSettled(jobs);
         results.forEach((r) => { if (r.status === 'rejected') console.error('[F_ckCensor] сообщение о цензуре:', r.reason && r.reason.message); });
         const ok = results.some((r) => r.status === 'fulfilled' && r.value);
-        if (ok) markReported(id, key);
+        if (ok) {
+            markReported(id, key);
+            if (wrong) rememberWrongUrl(id);
+            // своя обложка пользователя (blob:, data:) живёт только в этом окне — программе она не откроется
+            const cover = (info && info.cover) || '';
+            window.__fkcReports.push({
+                kind, id: String(id), wrong, title: (info && info.title) || '', artists: (info && info.artists) || '',
+                cover: /^(blob|data):/.test(cover) ? '' : cover, albumId: (info && info.albumId) || '',
+                // какой файл стоял при жалобе на замену, программа узнает от главного процесса
+                // при первой проверке: копия списка в окне могла отстать
+            });
+        }
         if (!replaced) {
             showToast(!ok ? 'Не удалось сообщить о цензуре.'
                 : wrong ? 'Спасибо! Модераторы проверят замену и поставят версию без цензуры.'
@@ -4086,6 +4147,10 @@
                 if (!r) continue;
                 events.push(...(r.events || []));
                 pendingLikeOps.push(...(r.likeOps || []));
+                if (Array.isArray(r.reports) && r.reports.length) {
+                    pendingReports.push(...r.reports);
+                    savePendingReports();
+                }
                 if (r.nowPlaying && !nowPlaying) nowPlaying = r.nowPlaying;
             } catch(_) {}
         }
@@ -4093,6 +4158,69 @@
     }
 
     let syncOk = null;
+    // сообщения о цензуре, ещё не переданные программе, и что программа просит проверить
+    // Неотправленные сообщения хранятся в файле: программа может быть закрыта, а Яндекс Музыку закроют
+    // раньше, чем она запустится, — тогда они дойдут при следующем запуске
+    const REPORTS_PENDING = require('path').join(DATA_DIR, 'reports-pending.json');
+    const pendingReports = (() => {
+        try {
+            const list = JSON.parse(require('fs').readFileSync(REPORTS_PENDING, 'utf8'));
+            return Array.isArray(list) ? list : [];
+        } catch (_) { return []; }
+    })();
+    function savePendingReports() {
+        try {
+            if (pendingReports.length > 3000) pendingReports.splice(0, pendingReports.length - 3000);
+            if (pendingReports.length) {
+                require('fs').mkdirSync(DATA_DIR, { recursive: true });
+                require('fs').writeFileSync(REPORTS_PENDING, JSON.stringify(pendingReports));
+            } else require('fs').rmSync(REPORTS_PENDING, { force: true });
+        } catch (_) {}
+    }
+    let reportWatch = [];
+
+    // Что из сообщённого уже исправлено: трек появился в базе, альбом — в списке,
+    // у замены, на которую жаловались, другой файл. base — жалобы на замену, для которых
+    // программа ещё не знает, какой файл стоял (сообщения до этой версии): отдаём нынешний
+    function checkReports() {
+        const done = [], base = [];
+        // название и обложка — из базы: у удалённого трека Яндекс их уже не отдаст
+        const names = (list) => (Array.isArray(list) ? list.map((a) => a && a.name).filter(Boolean).join(', ') : '');
+        const infoOf = (kind, id) => {
+            if (kind === 'album') {
+                const a = meta.albums[id] || {};
+                return { title: a.title || '', artists: names(a.artists), cover: a.coverUri || '' };
+            }
+            const t = meta.tracks[id] || {};
+            const al = meta.albums[meta.trackAlbums[id]] || {};
+            // альбом из базы — чтобы открыть трек в нём: своего и удалённого трека вне альбома в Яндекс Музыке нет
+            return { title: t.title || '', artists: names(t.artists), cover: t.coverUri || al.coverUri || '', albumId: meta.trackAlbums[id] ? String(meta.trackAlbums[id]) : '' };
+        };
+        // список не загрузился — замен нет не потому, что их убрали: ничего не решаем
+        const listOk = listLoadOk && Object.keys(replacements).length > 0;
+        const fixed = (w, id) => done.push(Object.assign({ kind: w.kind, id, wrong: !!w.wrong }, infoOf(w.kind, id)));
+        for (const w of reportWatch) {
+            if (!w || !w.id) continue;
+            const id = String(w.id);
+            if (w.kind === 'album') {
+                if (meta.albums[id]) fixed(w, id);
+            } else if (w.wrong) {
+                const r = replacements[id];
+                // замену убрали совсем (например, Яндекс теперь отдаёт оригинал) — жалоба решена
+                if (!r) { if (w.url && listOk) fixed(w, id); continue; }
+                // какой файл стоял, программа ещё не знает — запоминаем нынешний (адрес — из этого
+                // процесса: копия списка в окне могла отстать)
+                if (!w.url) base.push({ kind: w.kind, id, wrong: true, url: r.url });
+                // исправили — значит, админка поставила новый файл с новой версией; другой адрес
+                // без новой версии (запасной список, переезд хранилища) — не исправление
+                else if (versionOf(r.url) && versionOf(r.url) !== versionOf(w.url)) fixed(w, id);
+            } else if (replacements[id]) {
+                // сообщали о цензуре в звуке — исправлено, когда появилась замена звука
+                fixed(w, id);
+            }
+        }
+        return { done, base };
+    }
 
     async function appSyncOnce() {
         const { app } = require('electron');
@@ -4116,7 +4244,12 @@
 
         try {
             const likeOps = pendingLikeOps.slice();
+            const reports = pendingReports.slice();
+            const checked = checkReports();
             const res = await postToApp('/ym/sync', {
+                reports,
+                reportsDone: checked.done,
+                reportsBase: checked.base,
                 likeOps,
                 likesRev: appLikesRev,
                 listLoadedAt,
@@ -4131,6 +4264,12 @@
             syncOk = true;
             enabledByApp = res.enabled === true;
             pendingLikeOps.splice(0, likeOps.length);
+            if (reports.length) {
+                pendingReports.splice(0, reports.length);
+                savePendingReports();
+            }
+            // список на проверку программа присылает, когда он меняется (и раз в минуту)
+            if (Array.isArray(res.watch)) reportWatch = res.watch;
             if (res.likes && typeof res.likesRev === 'number') {
                 appLikes = res.likes;
                 appLikesRev = res.likesRev;
