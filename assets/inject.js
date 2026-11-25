@@ -2458,10 +2458,10 @@
 
         report.addEventListener('click', async () => {
             const wrong = baseAudio();
-            const comment = await askReportComment(wrong ? 'track-wrong' : 'track');
-            if (comment === null) return;
+            const answer = await askReportComment(wrong ? 'track-wrong' : 'track');
+            if (answer === null) return;
             report.disabled = true;
-            await reportCensor(trackId, false, reportInfo(), 'track', { comment, wrong });
+            await reportCensor(trackId, false, reportInfo(), 'track', { comment: answer.comment, source: answer.source, wrong });
             renderReport();
         });
 
@@ -3620,10 +3620,10 @@
 
         const reportInfo = () => ({ title: shownTitle, artists: artistNames(shownArtists), cover: coverSrc || '' });
         report.addEventListener('click', async () => {
-            const comment = await askReportComment('album');
-            if (comment === null) return;
+            const answer = await askReportComment('album');
+            if (answer === null) return;
             report.disabled = true;
-            await reportCensor(albumId, false, reportInfo(), 'album', { comment });
+            await reportCensor(albumId, false, reportInfo(), 'album', { comment: answer.comment, source: answer.source });
             renderReport();
         });
 
@@ -3779,6 +3779,7 @@
         const kind = type || 'track';
         const wrong = !!(extra && extra.wrong);
         const comment = ((extra && extra.comment) || '').trim().slice(0, 500);
+        const source = sourceUrl(extra && extra.source);
         const key = wrong ? kind + '-wrong' : kind;
         if (!isNum(String(id)) || isReported(id, key)) return false;
         const body = { track_id: Number(id), type: kind, replaced: !!replaced };
@@ -3791,6 +3792,7 @@
                 client_id: clientId(),
             });
             if (comment) own.comment = comment;
+            if (source) own.source_url = source;
             if (wrong) own.wrong = true;
             jobs.push(postReport(OWN_REPORT_URL.replace(/[/]+$/, '') + '/rest/v1/reports', OWN_REPORT_KEY, own));
         }
@@ -3817,8 +3819,23 @@
         return ok;
     }
 
-    // Окно перед отправкой: где цензура. Тайминги сильно помогают модераторам найти оригинал.
-    // Возвращает комментарий (может быть пустым) или null — передумали
+    // Ссылка на версию без цензуры от пользователя: только http(s), до 500 символов, не на программу
+    // или архив. Неподходящая — пусто (сообщение уйдёт без неё)
+    const BAD_SOURCE_EXT = ['.exe', '.msi', '.bat', '.cmd', '.scr', '.apk', '.dmg', '.pkg', '.zip', '.rar', '.7z', '.js', '.vbs', '.ps1'];
+    function sourceUrl(raw) {
+        const v = String(raw || '').trim();
+        if (!v || v.length > 500) return '';
+        let u;
+        try { u = new URL(v); } catch (_) { return ''; }
+        if (u.protocol !== 'https:' && u.protocol !== 'http:') return '';
+        if (v.split('').some((c) => c.charCodeAt(0) <= 32)) return '';
+        const path = u.pathname.toLowerCase();
+        if (BAD_SOURCE_EXT.some((e) => path.endsWith(e))) return '';
+        return u.href;
+    }
+
+    // Окно перед отправкой: где цензура и, если знают, ссылка на версию без цензуры — с ней
+    // модераторам не надо искать оригинал. Возвращает { comment, source } или null — передумали
     function askReportComment(kind) {
         return new Promise((resolve) => {
             const overlay = el('div', 'fkc-overlay');
@@ -3834,6 +3851,19 @@
             area.maxLength = 500;
             area.placeholder = kind === 'album' ? 'Например: «Название трека» — 0:45 запикано слово' : 'Например: 0:45 запикано слово, 1:30 вырезан куплет';
             dlg.appendChild(area);
+            // ссылка на версию без цензуры — необязательна
+            const srcField = el('div', 'fkc-field');
+            srcField.appendChild(el('div', 'fkc-label', 'Ссылка на версию без цензуры — если знаете, трек появится быстрее'));
+            const src = el('input', 'fkc-input');
+            src.type = 'url';
+            src.maxLength = 500;
+            src.spellcheck = false;
+            src.placeholder = 'Например, ссылка на YouTube или VK';
+            srcField.appendChild(src);
+            const srcErr = el('div', 'fkc-text');
+            srcErr.hidden = true;
+            srcField.appendChild(srcErr);
+            dlg.appendChild(srcField);
             const pair = el('div', 'fkc-pair');
             const cancel = el('button', 'fkc-btn fkc-secondary', 'Отмена');
             const send = el('button', 'fkc-btn fkc-primary', 'Отправить');
@@ -3845,7 +3875,17 @@
             document.addEventListener('keydown', onKey, true);
             overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) done(null); });
             cancel.addEventListener('click', () => done(null));
-            send.addEventListener('click', () => done(area.value.trim()));
+            send.addEventListener('click', () => {
+                const raw = src.value.trim();
+                const source = sourceUrl(raw);
+                if (raw && !source) {
+                    srcErr.textContent = 'Нужна ссылка на страницу с треком (http:// или https://), не на файл программы или архив.';
+                    srcErr.hidden = false;
+                    src.focus();
+                    return;
+                }
+                done({ comment: area.value.trim(), source });
+            });
             document.body.appendChild(overlay);
             setTimeout(() => area.focus(), 0);
         });
