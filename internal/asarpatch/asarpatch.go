@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,63 @@ func readASAR(path string) (headerJSON []byte, fileData []byte, err error) {
 		return nil, nil, err
 	}
 	return splitASAR(data)
+}
+
+// readASARHeader читает только заголовок asar — для контрольной суммы весь файл не нужен.
+func readASARHeader(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	head := make([]byte, 16)
+	if _, err := io.ReadFull(f, head); err != nil {
+		return nil, err
+	}
+	jsonSize := binary.LittleEndian.Uint32(head[12:16])
+	if jsonSize > 64<<20 {
+		return nil, fmt.Errorf("invalid header size")
+	}
+	headerJSON := make([]byte, jsonSize)
+	if _, err := io.ReadFull(f, headerJSON); err != nil {
+		return nil, err
+	}
+	return headerJSON, nil
+}
+
+// fileContains ищет строки в файле по частям, не читая его целиком: exe клиента весит
+// за 200 МБ, а проверка патча идёт и после каждого обновления клиента.
+func fileContains(path string, needles ...[]byte) ([]bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	maxLen := 0
+	for _, n := range needles {
+		maxLen = max(maxLen, len(n))
+	}
+	found := make([]bool, len(needles))
+	buf := make([]byte, 1<<20+maxLen)
+	keep := 0
+	for {
+		n, err := io.ReadFull(f, buf[keep:])
+		chunk := buf[:keep+n]
+		for i, nd := range needles {
+			if !found[i] && len(nd) > 0 && bytes.Contains(chunk, nd) {
+				found[i] = true
+			}
+		}
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return found, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		// хвост — в начало: строка могла попасть на стык частей
+		keep = min(max(maxLen-1, 0), len(chunk))
+		copy(buf, chunk[len(chunk)-keep:])
+	}
 }
 
 func splitASAR(data []byte) (headerJSON []byte, fileData []byte, err error) {
@@ -305,11 +363,15 @@ func Inspect(asarPath, exePath, injectScript string) (State, error) {
 	case bytes.Contains(fileData, []byte(patchMarker)):
 		st = Outdated
 	}
-	if exe, err := os.ReadFile(exePath); err == nil && !bytes.Contains(exe, []byte(hashHeader(headerJSON))) {
-		// Считаем установку повреждённой, только если в exe лежит одна из известных нам сумм:
-		// у клиента без проверки целостности суммы в exe нет вовсе.
-		for _, h := range knownHashes(asarPath) {
-			if bytes.Contains(exe, []byte(h)) {
+	// Считаем установку повреждённой, только если суммы текущего asar в exe нет, а одна из
+	// известных нам сумм есть: у клиента без проверки целостности суммы в exe нет вовсе.
+	needles := [][]byte{[]byte(hashHeader(headerJSON))}
+	for _, h := range knownHashes(asarPath) {
+		needles = append(needles, []byte(h))
+	}
+	if found, err := fileContains(exePath, needles...); err == nil && !found[0] {
+		for _, f := range found[1:] {
+			if f {
 				return Broken, nil
 			}
 		}
@@ -323,7 +385,7 @@ func knownHashes(asarPath string) []string {
 	if c, err := os.ReadFile(hashCachePath); err == nil && len(c) > 0 {
 		hs = append(hs, string(c))
 	}
-	if h, _, err := readASAR(asarPath + ".bak"); err == nil {
+	if h, err := readASARHeader(asarPath + ".bak"); err == nil {
 		hs = append(hs, hashHeader(h))
 	}
 	return hs

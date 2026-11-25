@@ -4,7 +4,9 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,6 +51,8 @@ type App struct {
 	lastErr    string
 	ymDir      string
 	ymVersion  string
+	// patchKey — размеры и время изменения файлов клиента при последней проверке патча
+	patchKey string
 	patch      Patch
 	lastSync   time.Time
 	listCount  int
@@ -137,6 +141,15 @@ func (a *App) RefreshPatch() {
 	if !ym.Valid(dir) {
 		dir, _ = ym.FindDir()
 	}
+	// Файлы клиента не менялись — патч в том же состоянии. Проверка читает сотни мегабайт
+	// (asar и exe клиента), а watchPatch зовёт её каждую минуту
+	key := patchFilesKey(dir)
+	a.mu.Lock()
+	same := key != "" && key == a.patchKey
+	a.mu.Unlock()
+	if same {
+		return
+	}
 	patch, version := PatchNoYM, ""
 	if dir != "" {
 		switch st, err := asarpatch.Inspect(ym.ASARPath(dir), ym.IntegrityPath(dir), a.script); {
@@ -152,9 +165,12 @@ func (a *App) RefreshPatch() {
 			patch = PatchNone
 		}
 		version = asarpatch.AppVersion(ym.ASARPath(dir))
+		// прочитанные файлы больше не нужны — память сразу системе, а не когда-нибудь потом
+		debug.FreeOSMemory()
 	}
 
 	a.mu.Lock()
+	a.patchKey = key
 	diff := a.ymDir != dir || a.patch != patch || a.ymVersion != version
 	broke := a.patch == PatchOK && PatchProblem(patch)
 	a.ymDir, a.patch, a.ymVersion = dir, patch, version
@@ -166,6 +182,22 @@ func (a *App) RefreshPatch() {
 	if broke && cb != nil {
 		go cb()
 	}
+}
+
+// patchFilesKey — отпечаток файлов клиента, от которых зависит состояние патча; "" — клиента нет.
+func patchFilesKey(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	key := dir
+	for _, p := range []string{ym.ASARPath(dir), ym.ASARPath(dir) + ".bak", ym.IntegrityPath(dir)} {
+		if fi, err := os.Stat(p); err == nil {
+			key += fmt.Sprintf("|%d:%d", fi.Size(), fi.ModTime().UnixNano())
+		} else {
+			key += "|-"
+		}
+	}
+	return key
 }
 
 // PatchProblem — патч есть смысл (пере)установить: его нет, он устарел или повреждён.
