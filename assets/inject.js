@@ -3957,10 +3957,16 @@
             if (!isCustomId(trackId)) {
                 try { res = await origSingle.call(this, params, ...rest); } catch(_) {}
             }
-            const field = res && 'fileInfo' in res ? 'fileInfo' : 'downloadInfo';
-            const base = res && res[field];
             noteReplaced(trackId, url);
-            return Object.assign({ responseTime: 0, url: '' }, res, { [field]: makeDownloadInfo(base, trackId, url, params.quality) });
+            if (res) {
+                const field = 'fileInfo' in res ? 'fileInfo' : 'downloadInfo';
+                return Object.assign({ responseTime: 0, url: '' }, res, { [field]: makeDownloadInfo(res[field], trackId, url, params.quality) });
+            }
+            // Ответа нет (свой трек или запрос упал) — какое поле читает плеер, не знаем: ресурс
+            // get-file-info отдаёт downloadInfo, а resources/v2/file-info (клиент 5.128+) — fileInfo.
+            // Кладём звук в оба, иначе свой трек молча не играет
+            const di = makeDownloadInfo(null, trackId, url, params.quality);
+            return { responseTime: 0, url: '', downloadInfo: di, fileInfo: di };
         };
 
         const origBatch = proto.getFileInfoBatch;
