@@ -1,10 +1,4 @@
 #!/bin/bash
-# Сборка F_ckCensor для macOS: universal (Apple Silicon + Intel), F_ckCensor.app и .dmg.
-# Запускать на Mac из корня репозитория:   bash packaging/macos/build.sh
-# Нужны Go (go.dev/dl) и инструменты Xcode (xcode-select --install).
-#
-# Как у PulseSync: подпись локальная (codesign -s -), без сертификата Apple и нотаризации —
-# при первом запуске macOS спросит, открывать ли программу от неизвестного разработчика.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -12,7 +6,6 @@ ROOT=$(pwd)
 OUT="$ROOT/dist/macos"
 VERSION=$(sed -n 's/^var version = "\(v[^"]*\)".*/\1/p' cmd/F_ckCensor/main.go)
 VERSION=${VERSION:-dev}
-# FKC_VERSION — другой номер версии в программе (например, старый — проверить автообновление)
 LDVER=""
 if [ -n "${FKC_VERSION:-}" ]; then
 	VERSION=$FKC_VERSION
@@ -27,7 +20,6 @@ command -v clang >/dev/null || { echo "нет инструментов Xcode: xc
 rm -rf "$OUT"
 mkdir -p "$OUT/bin"
 
-# 1. Программа для обеих архитектур (окно и строка меню — на Cocoa, поэтому CGO)
 for ARCH in arm64 amd64; do
 	echo "сборка ${ARCH}…"
 	CGO_ENABLED=1 GOOS=darwin GOARCH=$ARCH MACOSX_DEPLOYMENT_TARGET=11.0 \
@@ -85,16 +77,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# 3. Локальная подпись (как у PulseSync)
 codesign --force --deep --sign - --timestamp=none "$APP"
 codesign --verify --deep --strict "$APP"
 
-# 4. архив для автообновления: программа скачивает его из релиза и меняет приложение сама
-#    (имя без версии — по нему программа ищет файл в релизе)
 ZIP="$OUT/F_ckCensor-mac.zip"
 ditto -c -k --keepParent "$APP" "$ZIP"
 
-# 5. .dmg: приложение и ярлык «Программы» — перетащить
 STAGE="$OUT/dmg"
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
