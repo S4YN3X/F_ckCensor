@@ -554,7 +554,46 @@ func replaceHashInExe(exePath string, candidates []string, newHash string) error
 	if bytes.Contains(data, newBuf) {
 		return nil
 	}
-	return fmt.Errorf("контрольная сумма asar не найдена в exe")
+	if strings.HasSuffix(exePath, "Info.plist") {
+		return writePlistAsarHash(exePath, data, newHash)
+	}
+	return fmt.Errorf("контрольная сумма asar не найдена в %s", filepath.Base(exePath))
+}
+
+// writePlistAsarHash записывает сумму в ElectronAsarIntegrity, даже если прежняя
+// строка в plist уже не совпадает с заголовком app.asar.
+func writePlistAsarHash(path string, data []byte, newHash string) error {
+	key := []byte("<key>ElectronAsarIntegrity</key>")
+	at := bytes.Index(data, key)
+	if at < 0 {
+		return fmt.Errorf("в Info.plist нет ElectronAsarIntegrity")
+	}
+	rest := data[at:]
+	hashKey := []byte("<key>hash</key>")
+	rel := bytes.Index(rest, hashKey)
+	if rel < 0 {
+		return fmt.Errorf("в Info.plist нет hash у ElectronAsarIntegrity")
+	}
+	seg := rest[rel:]
+	open := []byte("<string>")
+	strAt := bytes.Index(seg, open)
+	if strAt < 0 || strAt > 64 {
+		return fmt.Errorf("в Info.plist нет значения hash")
+	}
+	start := strAt + len(open)
+	end := bytes.Index(seg[start:], []byte("</string>"))
+	if end < 0 {
+		return fmt.Errorf("в Info.plist значение hash не закрыто")
+	}
+	abs := at + rel + start
+	updated := append([]byte{}, data[:abs]...)
+	updated = append(updated, []byte(newHash)...)
+	updated = append(updated, data[abs+end:]...)
+	if err := writeFileRetry(path, updated); err != nil {
+		return fmt.Errorf("write Info.plist: %w", err)
+	}
+	fmt.Println("[asarpatch] Wrote asar hash into Info.plist ✓")
+	return nil
 }
 
 // writeFileRetry пишет файл, повторяя попытки несколько секунд: только что изменённый

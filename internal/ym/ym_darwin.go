@@ -37,13 +37,32 @@ func Valid(app string) bool {
 	return err == nil
 }
 
+func foldAppName(name string) string {
+	name = strings.ToLower(name)
+	for _, sp := range []string{"\u00a0", "\u202f", "\u2007", "\u2060"} {
+		name = strings.ReplaceAll(name, sp, " ")
+	}
+	return strings.Join(strings.Fields(name), " ")
+}
+
 // FindDir ищет приложение в «Программах» системы и пользователя.
+// Имена с неразрывным пробелом («Yandex\u00a0Music.app») считаются тем же приложением.
+// Если копий несколько, берётся та, у которой сумма в Info.plist совпадает с app.asar.
 func FindDir() (string, error) {
 	home, _ := os.UserHomeDir()
 	dirs := []string{"/Applications", filepath.Join(home, "Applications")}
+	want := map[string]bool{
+		foldAppName("Яндекс Музыка.app"): true,
+		foldAppName("Yandex Music.app"):  true,
+	}
 	for _, dir := range dirs {
-		for _, name := range []string{"Яндекс Музыка.app", "Yandex Music.app"} {
-			if app := filepath.Join(dir, name); Valid(app) {
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			n := foldAppName(e.Name())
+			if !want[n] {
+				continue
+			}
+			if app := filepath.Join(dir, e.Name()); Valid(app) {
 				return app, nil
 			}
 		}
@@ -51,7 +70,7 @@ func FindDir() (string, error) {
 	for _, dir := range dirs {
 		entries, _ := os.ReadDir(dir)
 		for _, e := range entries {
-			n := strings.ToLower(e.Name())
+			n := foldAppName(e.Name())
 			isYandex := strings.Contains(n, "yandex") || strings.Contains(n, "яндекс")
 			isMusic := strings.Contains(n, "муз") || strings.Contains(n, "music")
 			if strings.HasSuffix(n, ".app") && isYandex && isMusic {
