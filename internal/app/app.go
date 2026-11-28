@@ -21,6 +21,8 @@ import (
 
 const (
 	RepoURL = "https://github.com/S4YN3X/F_ckCensor"
+	// DonateURL — страница донатов (кнопка «поддержать» в «о программе»); пусто — кнопки нет
+	DonateURL = "https://web.tribute.tg/d/V6W"
 
 	connectedTimeout = 6 * time.Second
 	dedupeWindow     = 10 * time.Minute
@@ -636,6 +638,7 @@ type State struct {
 	GoVersion string `json:"goVersion"`
 	Arch      string `json:"arch"`
 	RepoURL   string `json:"repoUrl"`
+	DonateURL string `json:"donateUrl"`
 	YMDir     string `json:"ymDir"`
 	YMVersion string `json:"ymVersion"`
 	Patch     Patch  `json:"patch"`
@@ -669,6 +672,7 @@ func (a *App) Snapshot() State {
 		GoVersion:       strings.TrimPrefix(runtime.Version(), "go"),
 		Arch:            runtime.GOARCH,
 		RepoURL:         RepoURL,
+		DonateURL:       DonateURL,
 		YMDir:           a.ymDir,
 		YMVersion:       a.ymVersion,
 		Patch:           a.patch,

@@ -4002,6 +4002,39 @@
         return true;
     }
 
+    // Скачанные в клиенте треки: подклассы ресурса сначала спрашивают localFileInfoProvider,
+    // скачан ли трек, и если да — играют локальный файл (это версия с цензурой), не доходя
+    // до getFileInfo базового класса, где стоит подмена. Для треков из списка отвечаем
+    // «не скачан» — клиент идёт за звуком в сеть и получает замену.
+    // Класс провайдера модуль не экспортирует: прототип берём у первого экземпляра.
+    function skipDownloaded(resource) {
+        const provider = resource && resource.localFileInfoProvider;
+        const proto = provider && Object.getPrototypeOf(provider);
+        if (!proto || proto.__fkcSkip || typeof proto.isTrackDownloaded !== 'function') return;
+        proto.__fkcSkip = true;
+        const orig = proto.isTrackDownloaded;
+        proto.isTrackDownloaded = async function(trackId, ...rest) {
+            // без сети замену не скачать — пусть лучше играет скачанный файл, чем тишина
+            if (getReplacementUrl(trackId) && navigator.onLine !== false) return false;
+            return orig.call(this, trackId, ...rest);
+        };
+        console.log('[F_ckCensor] скачанные треки: для замен играет замена ✓');
+    }
+
+    function patchLocalFirst(proto) {
+        if (proto.__fkcLocalFirst) return false;
+        proto.__fkcLocalFirst = true;
+        for (const name of ['getFileInfo', 'getFileInfoBatch']) {
+            const orig = proto[name];
+            if (typeof orig !== 'function') continue;
+            proto[name] = function(...args) {
+                skipDownloaded(this);
+                return orig.apply(this, args);
+            };
+        }
+        return true;
+    }
+
     function hookFileInfo() {
     const webpackGlobal = window.webpackChunk_N_E;
     if (!webpackGlobal) return false;
@@ -4013,22 +4046,26 @@
 
     // Классы ресурса ищем по адресу запроса в исходнике модуля, а не по минифицированным именам:
     // так поиск переживает пересборку клиента.
-    const patched = [];
+    const patched = [], localFirst = [];
     for (const id in appRequire.m) {
         let src;
         try { src = appRequire.m[id].toString(); } catch(_) { continue; }
-        if (!src.includes('"get-file-info"') && !src.includes('"resources/v2/file-info"')) continue;
+        const base = src.includes('"get-file-info"') || src.includes('"resources/v2/file-info"');
+        const local = src.includes('localFileInfoProvider');
+        if (!base && !local) continue;
         let mod;
         try { mod = appRequire(id); } catch(_) { continue; }
         for (const key in mod) {
             const C = mod[key];
             if (typeof C === 'function' && C.prototype && typeof C.prototype.getFileInfo === 'function') {
-                if (patchResource(C.prototype)) patched.push(id);
+                if (base && patchResource(C.prototype)) patched.push(id);
+                if (local && patchLocalFirst(C.prototype)) localFirst.push(id);
             }
         }
     }
     if (!patched.length) return false;
-    console.log('[F_ckCensor] file-info hooked ✓ (модули ' + patched.join(', ') + ')');
+    console.log('[F_ckCensor] file-info hooked ✓ (модули ' + patched.join(', ') + ')' +
+        (localFirst.length ? ', скачанные — модули ' + localFirst.join(', ') : ', класс скачанных треков не найден'));
     return true;
     }
 

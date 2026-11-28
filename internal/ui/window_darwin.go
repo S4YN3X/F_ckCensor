@@ -250,6 +250,10 @@ func (w *Window) action(name string, arg json.RawMessage) error {
 		w.app.SkipStartupUpdate()
 	case "expand", "titlebar":
 		// заставку разворачивает сам процесс окна, шапку окна на Mac рисует система
+	case "donate":
+		if app.DonateURL != "" {
+			winutil.OpenURL(app.DonateURL)
+		}
 	case "open":
 		if url, ok := v.(string); ok && (url == app.RepoURL || len(url) > len(app.RepoURL) && url[:len(app.RepoURL)+1] == app.RepoURL+"/") {
 			winutil.OpenURL(url)

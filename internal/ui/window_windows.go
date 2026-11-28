@@ -333,6 +333,10 @@ func (w *Window) action(name string, arg json.RawMessage) error {
 			// тема окна сменилась — иконка на панели задач тоже
 			winutil.SetWindowIcon(hwnd, assets.Icon(w.app.DarkIcons(), true))
 		}
+	case "donate":
+		if app.DonateURL != "" {
+			winutil.OpenURL(app.DonateURL)
+		}
 	case "open":
 		// открываем только ссылки на репозиторий программы
 		if url, ok := v.(string); ok && (url == app.RepoURL || strings.HasPrefix(url, app.RepoURL+"/")) {

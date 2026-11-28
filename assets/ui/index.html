@@ -465,6 +465,7 @@ button:disabled{cursor:default;opacity:.5}
         <button class="btn dark" id="b-update"></button>
         <button class="btn" data-open="">исходный код</button>
         <button class="btn" data-open="/issues">сообщить о проблеме</button>
+        <button class="btn" data-act="donate" id="b-donate" hidden title="программа бесплатная и останется такой — донат идёт на своё хранилище для треков">поддержать ❤️</button>
       </div>
     </section>
   </main>
@@ -757,6 +758,7 @@ function render() {
   $('b-reload-list').textContent = reloading ? 'обновляем треки…' : 'обновить треки';
 
   // инфо
+  $('b-donate').hidden = !s.donateUrl;
   if (!$('about-sub').dataset.ready) {
     // название со спойлером — разметка один раз, дальше меняется только текст версии
     $('about-sub').innerHTML = 'f<span class="spoiler">u</span>ckcensor <span id="about-ver"></span>';
